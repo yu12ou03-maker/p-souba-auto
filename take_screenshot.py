@@ -33,7 +33,7 @@ def analyze_image_with_gemini(image_path, category_name, api_key):
  5位 機種名：約〇〇万円（前週比 ±0円）
 """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{
             "parts": [
