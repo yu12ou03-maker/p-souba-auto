@@ -1,51 +1,135 @@
 import os
+import re
 import time
-from playwright.sync_api import sync_playwright
+import unicodedata
 from datetime import datetime, timezone, timedelta
+from playwright.sync_api import sync_playwright
 
-def extract_ranking_data(page, category_name):
-    """ページから直接TOP5のテキストデータを抽出する"""
-    ranking_text = []
-    ranking_text.append(f"{category_name}中古機相場TOP5")
-    
-    # テーブル行（trタグ）をすべて取得
+# ==========================================
+# 【注視機種の設定】（毎月ここを書き換えてください）
+# 表記ゆれに対応しているため、機種名の一部でOKです
+# ==========================================
+TARGET_PACHINKO = [
+    "牙狼12",
+]
+
+TARGET_SLOT = [
+    "ソードアート",  # 「ソードアートオンライン」「SAO」等にヒット
+]
+# ==========================================
+
+
+def normalize_text(text):
+    """全角半角のゆれを吸収して比較しやすくする"""
+    return unicodedata.normalize("NFKC", text).lower().replace(" ", "").replace(" ", "")
+
+
+def parse_change_val(val_str):
+    """前日比の文字列を数値（整数）に変換する"""
+    clean_str = val_str.replace(",", "").replace("円", "").replace(" ", "").strip()
+    if clean_str in ["-", "±0", "0", ""]:
+        return 0
+    match = re.search(r"([+-]?\d+)", clean_str)
+    if match:
+        return int(match.group(1))
+    return 0
+
+
+def format_change_text(change_val):
+    """変動額を色付きアイコンに整形する"""
+    if change_val > 0:
+        return f"🔴 +{change_val:,}円"
+    elif change_val < 0:
+        return f"🔵 {change_val:,}円"
+    else:
+        return "±0円"
+
+
+def analyze_ranking_table(page, category_name, target_keywords):
+    """ランキングページから指定機種と前日比の急変動機種を抽出する"""
     rows = page.locator("table tr").all()
-    
-    count = 0
+    all_data = []
+
+    # 表データの解析（ヘッダー行から前日比の列を特定）
+    col_name = 2
+    col_price = 3
+    col_change = 4  # デフォルトは4列目（前日比）
+
+    header_found = False
     for row in rows:
-        # ランキングの数字（1〜5）が入っている行を探す
-        cells = row.locator("td").all_inner_texts()
-        if len(cells) >= 6:
-            rank_str = cells[0].strip()
-            if rank_str in ["1", "2", "3", "4", "5"]:
-                machine_name = cells[2].strip()
-                price = cells[3].strip()
-                change_val = cells[5].strip()
-                
-                # 変動額の表記をルール通りに変換
-                if change_val == "0":
-                    change_text = "±0円"
-                elif change_val.startswith("-"):
-                    change_text = f"🔵 {change_val}円"
-                else:
-                    change_text = f"🔴 +{change_val}円"
-                
-                # 価格の表記を整える
-                if price == "-":
-                    price_text = "価格データなし"
-                else:
-                    price_text = f"約{price}万円"
-                
-                ranking_text.append(f" {rank_str}位 {machine_name}：{price_text}（前週比 {change_text}）")
-                count += 1
-                
-        if count >= 5:
-            break
-            
-    if count == 0:
-        return f"{category_name}中古機相場TOP5\n （データが取得できませんでした）"
-        
-    return "\n".join(ranking_text)
+        cells = [c.strip() for c in row.locator("th, td").all_inner_texts()]
+        if not cells:
+            continue
+
+        # ヘッダー列の自動判定
+        if not header_found and any("前日比" in c for c in cells):
+            for idx, c in enumerate(cells):
+                if "機種" in c:
+                    col_name = idx
+                elif "相場" in c:
+                    col_price = idx
+                elif "前日比" in c:
+                    col_change = idx
+            header_found = True
+            continue
+
+        # データ行の解析
+        if len(cells) > max(col_name, col_price, col_change):
+            rank_str = cells[0]
+            if rank_str.isdigit():
+                m_name = cells[col_name]
+                m_price = cells[col_price]
+                c_str = cells[col_change]
+                c_val = parse_change_val(c_str)
+
+                all_data.append({
+                    "rank": int(rank_str),
+                    "name": m_name,
+                    "price": m_price,
+                    "change_val": c_val,
+                    "change_text": format_change_text(c_val)
+                })
+
+    report_lines = [f"■ {category_name}"]
+
+    # 1. 注視機種の抽出
+    report_lines.append("【注視機種相場】")
+    matched_any = False
+    for kw in target_keywords:
+        norm_kw = normalize_text(kw)
+        for item in all_data:
+            if norm_kw in normalize_text(item["name"]):
+                price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
+                report_lines.append(f" ・{item['name']}：{price_disp}（前日比 {item['change_text']}）")
+                matched_any = True
+                break
+    if not matched_any:
+        report_lines.append(" （該当機種がランキング内に見つかりませんでした）")
+
+    # 2. 急上昇（前日比プラスの上位3機種）
+    report_lines.append("\n【前日比 急上昇TOP3】")
+    up_items = [d for d in all_data if d["change_val"] > 0]
+    up_items.sort(key=lambda x: x["change_val"], reverse=True)
+    if up_items:
+        for idx, item in enumerate(up_items[:3], 1):
+            price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
+            report_lines.append(f" {idx}位 {item['name']}：{price_disp}（前日比 {item['change_text']}）")
+    else:
+        report_lines.append(" （値上がり機種なし）")
+
+    # 3. 急降下（前日比マイナスの上位3機種）
+    report_lines.append("\n【前日比 急降下TOP3】")
+    down_items = [d for d in all_data if d["change_val"] < 0]
+    down_items.sort(key=lambda x: x["change_val"])  # マイナスが大きい順
+    if down_items:
+        for idx, item in enumerate(down_items[:3], 1):
+            price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
+            report_lines.append(f" {idx}位 {item['name']}：{price_disp}（前日比 {item['change_text']}）")
+    else:
+        report_lines.append(" （値下がり機種なし）")
+
+    return "\n".join(report_lines)
+
 
 def run():
     username = os.environ.get("P_SOUBA_USER")
@@ -85,33 +169,30 @@ def run():
         page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
-        # 2. パチンコ相場データ抽出とスクショ撮影
-        p_path = "screenshots/pachinko_ranking.png"
-        print("パチンコ相場ランキングを抽出中...")
+        # 2. パチンコ相場解析
+        print("パチンコ相場データを解析中...")
         page.goto("http://www.p-souba.com/krank_1.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        pachinko_text = extract_ranking_data(page, "パチンコ")
-        page.screenshot(path=p_path, full_page=True)
+        pachinko_text = analyze_ranking_table(page, "パチンコ", TARGET_PACHINKO)
 
-        # 3. パチスロ相場データ抽出とスクショ撮影
-        s_path = "screenshots/pachislot_ranking.png"
-        print("パチスロ相場ランキングを抽出中...")
+        # 3. パチスロ相場解析
+        print("パチスロ相場データを解析中...")
         page.goto("http://www.p-souba.com/krank_2.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        pachislot_text = extract_ranking_data(page, "パチスロ")
-        page.screenshot(path=s_path, full_page=True)
+        pachislot_text = analyze_ranking_table(page, "パチスロ", TARGET_SLOT)
 
         browser.close()
 
-    # 4. レポート作成（Gemini APIを使わず直接テキストを保存）
+    # 4. レポート書き出し
     jst = timezone(timedelta(hours=+9), 'JST')
     now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
-
     full_report = f"【{now_str}】\n\n{pachinko_text}\n\n{pachislot_text}\n"
 
     with open("latest_report.txt", "w", encoding="utf-8") as f:
         f.write(full_report)
+
     print("レポート生成完了（latest_report.txt に保存しました）")
+
 
 if __name__ == "__main__":
     run()
