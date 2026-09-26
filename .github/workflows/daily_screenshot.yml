@@ -27,16 +27,17 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: スクリーンショットの撮影を実行
+      - name: スクリーンショット撮影とレポート生成を実行
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python take_screenshot.py
 
-      - name: 撮影したスクショを保存してコミット
+      - name: 成果物を保存してコミット
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add screenshots/
-          git diff --quiet && git diff --staged --quiet || (git commit -m "中古機相場スクショ自動更新" && git push)
+          git add screenshots/ latest_report.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "中古機相場データ自動更新" && git push)
