@@ -66,8 +66,8 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    # 2.5 と 1.5 の両方を順番に試す（エラー回避の安全策）
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    # 新規ユーザーでも利用可能な「2.5-pro」を最優先で指定！
+    models_to_try = ["gemini-2.5-pro", "gemini-2.5-flash"]
     error_details = []
 
     for model in models_to_try:
@@ -78,7 +78,6 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
                 data = json.loads(resp.read().decode("utf-8"))
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except urllib.error.HTTPError as e:
-            # エラーの「本当の理由（Googleからの返答）」を読み取る
             try:
                 error_body = e.read().decode("utf-8", errors="ignore")
             except:
@@ -87,7 +86,6 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
         except Exception as e:
             error_details.append(f"[{model}] ネットワークエラー: {e}")
 
-    # すべてのモデルで失敗した場合は、エラー詳細を丸ごと書き出す
     err_text = "\n".join(error_details)
     return f"■ {category_name}\n（AI解析エラー詳細:\n{err_text}\n）"
 
