@@ -1,59 +1,59 @@
 import os
 import time
 from playwright.sync_api import sync_playwright
-import google.generativeai as genai
+from datetime import datetime, timezone, timedelta
 
-def analyze_image_with_gemini(image_path, category_name):
-    """公式ライブラリを使って画像をGeminiに解析させる"""
-    prompt = f"""
-この画像はパチンコ・パチスロの中古機相場ランキングのスクリーンショットです。
-以下の【出力ルール】を厳格に守り、【{category_name}中古機相場TOP5】のテキストを作成してください。
-
-【出力ルール】
-1. 1位から5位までの機種を抽出すること。
-2. 変動額の表記ルール：
-   - プラス（値上がり）の場合は「🔴 +〇〇円」
-   - マイナス（値下がり）の場合は「🔵 -〇〇円」
-   - 変動なしの場合は「±0円」
-3. レイアウト・インデント：
-   - タイトルの次の行から、行頭に全角スペース（ ）を1つ入れて各順位を記載すること。
-   - 余計な解説、情報元URL、「jpg」などの画像ファイル名、前置きやまとめの挨拶は一切出力しないこと。
-
-【出力フォーマット例】
-{category_name}中古機相場TOP5
- 1位 機種名：約〇〇万円（前週比 🔴 +〇〇円）
- 2位 機種名：約〇〇万円（前週比 🔵 -〇〇円）
- 3位 機種名：約〇〇万円（前週比 🔴 +〇〇円）
- 4位 機種名：約〇〇万円（前週比 🔵 -〇〇円）
- 5位 機種名：約〇〇万円（前週比 ±0円）
-"""
-    try:
-        # 画像を読み込んでAPIに送信
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        sample_file = genai.upload_file(path=image_path)
+def extract_ranking_data(page, category_name):
+    """ページから直接TOP5のテキストデータを抽出する"""
+    ranking_text = []
+    ranking_text.append(f"{category_name}中古機相場TOP5")
+    
+    # テーブル行（trタグ）をすべて取得
+    rows = page.locator("table tr").all()
+    
+    count = 0
+    for row in rows:
+        # ランキングの数字（1〜5）が入っている行を探す
+        cells = row.locator("td").all_inner_texts()
+        if len(cells) >= 6:
+            rank_str = cells[0].strip()
+            if rank_str in ["1", "2", "3", "4", "5"]:
+                machine_name = cells[2].strip()
+                price = cells[3].strip()
+                change_val = cells[5].strip()
+                
+                # 変動額の表記をルール通りに変換
+                if change_val == "0":
+                    change_text = "±0円"
+                elif change_val.startswith("-"):
+                    change_text = f"🔵 {change_val}円"
+                else:
+                    change_text = f"🔴 +{change_val}円"
+                
+                # 価格の表記を整える
+                if price == "-":
+                    price_text = "価格データなし"
+                else:
+                    price_text = f"約{price}万円"
+                
+                ranking_text.append(f" {rank_str}位 {machine_name}：{price_text}（前週比 {change_text}）")
+                count += 1
+                
+        if count >= 5:
+            break
+            
+    if count == 0:
+        return f"{category_name}中古機相場TOP5\n （データが取得できませんでした）"
         
-        response = model.generate_content([prompt, sample_file])
-        
-        # サーバー上の画像を削除（念のため）
-        genai.delete_file(sample_file.name)
-        
-        return response.text.strip()
-    except Exception as e:
-        print(f"Gemini解析エラー ({category_name}): {e}")
-        return f"{category_name}中古機相場TOP5\n（取得エラーが発生しました）"
+    return "\n".join(ranking_text)
 
 def run():
     username = os.environ.get("P_SOUBA_USER")
     password = os.environ.get("P_SOUBA_PASS")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
 
     if not username or not password:
         raise ValueError("中古機相場のログイン情報が設定されていません。")
-    if not gemini_key:
-        raise ValueError("GEMINI_API_KEY が設定されていません。")
 
-    # APIキーの初期設定
-    genai.configure(api_key=gemini_key)
     os.makedirs("screenshots", exist_ok=True)
 
     with sync_playwright() as p:
@@ -85,35 +85,30 @@ def run():
         page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
-        # 2. パチンコ相場スクショ撮影
+        # 2. パチンコ相場データ抽出とスクショ撮影
         p_path = "screenshots/pachinko_ranking.png"
-        print("パチンコ相場ランキングを撮影中...")
+        print("パチンコ相場ランキングを抽出中...")
         page.goto("http://www.p-souba.com/krank_1.htm", wait_until="domcontentloaded")
         time.sleep(3)
+        pachinko_text = extract_ranking_data(page, "パチンコ")
         page.screenshot(path=p_path, full_page=True)
 
-        # 3. パチスロ相場スクショ撮影
+        # 3. パチスロ相場データ抽出とスクショ撮影
         s_path = "screenshots/pachislot_ranking.png"
-        print("パチスロ相場ランキングを撮影中...")
+        print("パチスロ相場ランキングを抽出中...")
         page.goto("http://www.p-souba.com/krank_2.htm", wait_until="domcontentloaded")
         time.sleep(3)
+        pachislot_text = extract_ranking_data(page, "パチスロ")
         page.screenshot(path=s_path, full_page=True)
 
         browser.close()
 
-    # 4. Geminiによる自動解析・テキスト作成
-    print("Geminiによる相場データ自動作成中...")
-    pachinko_text = analyze_image_with_gemini(p_path, "パチンコ")
-    pachislot_text = analyze_image_with_gemini(s_path, "パチスロ")
-
-    # 現在時刻を付与して保存内容が毎回変わるようにする（上書きされない対策）
-    from datetime import datetime, timezone, timedelta
+    # 4. レポート作成（Gemini APIを使わず直接テキストを保存）
     jst = timezone(timedelta(hours=+9), 'JST')
     now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
 
     full_report = f"【{now_str}】\n\n{pachinko_text}\n\n{pachislot_text}\n"
 
-    # レポートファイルとして保存
     with open("latest_report.txt", "w", encoding="utf-8") as f:
         f.write(full_report)
     print("レポート生成完了（latest_report.txt に保存しました）")
