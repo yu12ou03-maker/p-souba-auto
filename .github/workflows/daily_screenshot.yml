@@ -28,6 +28,9 @@ jobs:
           playwright install --with-deps chromium
 
       - name: スクリーンショットの撮影を実行
+        env:
+          P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
+          P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
         run: |
           python take_screenshot.py
 
