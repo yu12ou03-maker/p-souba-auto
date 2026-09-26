@@ -1,51 +1,25 @@
-【2026/09/26 22:26 更新】
+【2026/09/26 22:31 更新】
 
 ■ パチンコ
-【注視機種相場】
- ・e牙狼12 黄金騎士極限：302,203円（前日比 🔵 -2,228円）
-
-【前日比 急上昇TOP3】
- 1位 P 春一番 2026【甘デジ】：500,000円（前日比 🔴 +105,000円）
- 2位 eひきこもり吸血姫の悶々：302,812円（前日比 🔴 +14,398円）
- 3位 ぱちんこ 必殺仕事人VI：321,985円（前日比 🔴 +12,149円）
-
-【前日比 急降下TOP3】
- 1位 eタクトオーパス デスティニー：269,000円（前日比 🔵 -78,450円）
- 2位 e 甲鉄城のカバネリ2 輪廻の果報119ver.【甘デジ】：239,687円（前日比 🔵 -66,875円）
- 3位 PAコマコマ倶楽部with坂本冬美89確変ループ10ラウンド極【甘デジ】：400,000円（前日比 🔵 -50,000円）
+（AI解析エラー: HTTP 503 - {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+）
 
 ■ パチスロ
-（AI解析エラー詳細:
-[gemini-3.6-flash] HTTP 503: {
-  "error": {
-    "code": 503,
-    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
-    "status": "UNAVAILABLE"
-  }
-}
+【注視機種相場】
+ ・スロット ソードアート・オンラインII【6号機】：2,256,254円（前日比 🔵 -4,541円）
 
-[gemini-3.6-pro] HTTP 404: {
-  "error": {
-    "code": 404,
-    "message": "models/gemini-3.6-pro is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
-    "status": "NOT_FOUND"
-  }
-}
+【前日比 急上昇TOP3】
+ 1位 沖ドキ！ゴージャス 30 Φ【6号機】：1,530,000円（前日比 🔴 +29,000円）
+ 2位 ウルトラミラクルジャグラー【6号機】：1,157,200円（前日比 🔴 +22,772円）
+ 3位 ニューキングハナハナV-30【6号機】：696,250円（前日比 🔴 +10,536円）
 
-[gemini-3.5-flash] HTTP 503: {
-  "error": {
-    "code": 503,
-    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
-    "status": "UNAVAILABLE"
-  }
-}
-
-[gemini-3.5-pro] HTTP 404: {
-  "error": {
-    "code": 404,
-    "message": "models/gemini-3.5-pro is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
-    "status": "NOT_FOUND"
-  }
-}
-
-）
+【前日比 急降下TOP3】
+ 1位 Lパチスロ 喰霊 零 Re【6号機】：597,027円（前日比 🔵 -21,998円）
+ 2位 L戦国乙女5 業火を穿つ宿焔の双刃【6号機】：620,700円（前日比 🔵 -20,248円）
+ 3位 スマート沖スロ ドラゴンハナハナ閃光【6号機】：318,750円（前日比 🔵 -20,000円）
