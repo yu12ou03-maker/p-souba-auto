@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 TARGET_PACHINKO = [
     "牙狼12",
     # "東京喰種　超デカ超一撃",
-    # "ソードアートオンライン夜空",
+    # "ソードアートオンライン夜空","大海物語5",
 ]
 
 TARGET_SLOT = [
