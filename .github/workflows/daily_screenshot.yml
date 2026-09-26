@@ -2,9 +2,7 @@ name: 毎朝スクショ自動撮影
 
 on:
   schedule:
-    # 日本時間の毎朝 07:00 に自動実行 (UTC 22:00)
     - cron: '0 22 * * *'
-  # 手動で「今すぐ実行」もできるボタン
   workflow_dispatch:
 
 jobs:
@@ -26,6 +24,7 @@ jobs:
         run: |
           pip install playwright
           playwright install --with-deps chromium
+          pip install google-generativeai
 
       - name: スクリーンショット撮影とレポート生成を実行
         env:
