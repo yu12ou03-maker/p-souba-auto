@@ -1,7 +1,41 @@
-【2026/09/26 22:10 更新】
+【2026/09/26 22:16 更新】
 
 ■ パチンコ
-（AI解析エラー: HTTP Error 404: Not Found）
+（AI解析エラー詳細:
+[gemini-2.5-flash] HTTP 404: {
+  "error": {
+    "code": 404,
+    "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
+    "status": "NOT_FOUND"
+  }
+}
+
+[gemini-1.5-flash] HTTP 404: {
+  "error": {
+    "code": 404,
+    "message": "models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "status": "NOT_FOUND"
+  }
+}
+
+）
 
 ■ パチスロ
-（AI解析エラー: HTTP Error 404: Not Found）
+（AI解析エラー詳細:
+[gemini-2.5-flash] HTTP 404: {
+  "error": {
+    "code": 404,
+    "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
+    "status": "NOT_FOUND"
+  }
+}
+
+[gemini-1.5-flash] HTTP 404: {
+  "error": {
+    "code": 404,
+    "message": "models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "status": "NOT_FOUND"
+  }
+}
+
+）
