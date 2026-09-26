@@ -1,39 +1,49 @@
-【2026/09/26 22:20 更新】
+【2026/09/26 22:26 更新】
 
 ■ パチンコ
-（AI解析エラー詳細:
-[gemini-2.5-pro] HTTP 404: {
-  "error": {
-    "code": 404,
-    "message": "This model models/gemini-2.5-pro is no longer available to new users. Please update your code to use models/gemini-3.1-pro-preview for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
-    "status": "NOT_FOUND"
-  }
-}
+【注視機種相場】
+ ・e牙狼12 黄金騎士極限：302,203円（前日比 🔵 -2,228円）
 
-[gemini-2.5-flash] HTTP 404: {
-  "error": {
-    "code": 404,
-    "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
-    "status": "NOT_FOUND"
-  }
-}
+【前日比 急上昇TOP3】
+ 1位 P 春一番 2026【甘デジ】：500,000円（前日比 🔴 +105,000円）
+ 2位 eひきこもり吸血姫の悶々：302,812円（前日比 🔴 +14,398円）
+ 3位 ぱちんこ 必殺仕事人VI：321,985円（前日比 🔴 +12,149円）
 
-）
+【前日比 急降下TOP3】
+ 1位 eタクトオーパス デスティニー：269,000円（前日比 🔵 -78,450円）
+ 2位 e 甲鉄城のカバネリ2 輪廻の果報119ver.【甘デジ】：239,687円（前日比 🔵 -66,875円）
+ 3位 PAコマコマ倶楽部with坂本冬美89確変ループ10ラウンド極【甘デジ】：400,000円（前日比 🔵 -50,000円）
 
 ■ パチスロ
 （AI解析エラー詳細:
-[gemini-2.5-pro] HTTP 404: {
+[gemini-3.6-flash] HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+[gemini-3.6-pro] HTTP 404: {
   "error": {
     "code": 404,
-    "message": "This model models/gemini-2.5-pro is no longer available to new users. Please update your code to use models/gemini-3.1-pro-preview for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
+    "message": "models/gemini-3.6-pro is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
     "status": "NOT_FOUND"
   }
 }
 
-[gemini-2.5-flash] HTTP 404: {
+[gemini-3.5-flash] HTTP 503: {
+  "error": {
+    "code": 503,
+    "message": "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+    "status": "UNAVAILABLE"
+  }
+}
+
+[gemini-3.5-pro] HTTP 404: {
   "error": {
     "code": 404,
-    "message": "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).",
+    "message": "models/gemini-3.5-pro is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
     "status": "NOT_FOUND"
   }
 }
