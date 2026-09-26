@@ -49,44 +49,57 @@ def analyze_ranking_table(page, category_name, target_keywords):
     rows = page.locator("table tr").all()
     all_data = []
 
+    # メインテーブルの標準列インデックス
     col_name = 2
     col_price = 5
     col_change = 6
 
-    header_found = False
     for row in rows:
         cells = [c.strip() for c in row.locator("th, td").all_inner_texts()]
         if not cells:
             continue
 
-        # ヘッダー列の自動判定（「前日」が含まれる列を探す）
-        if not header_found and any("前日" in c for c in cells):
+        # メインテーブルの見出し行（「機種名」かつ「平均価格」を含む行）を検知
+        if any("機種名" in c for c in cells) and any("平均価格" in c for c in cells):
             for idx, c in enumerate(cells):
-                if "機種" in c:
+                if "機種名" in c:
                     col_name = idx
-                elif "価格" in c or "相場" in c:
+                elif "平均価格" in c:
                     col_price = idx
                 elif "前日" in c:
                     col_change = idx
-            header_found = True
             continue
 
-        # データ行の解析
-        if len(cells) > max(col_name, col_price, col_change):
-            rank_str = cells[0].replace("位", "").strip() # 「位」を取り除いて数字だけにする
-            if rank_str.isdigit():
-                m_name = cells[col_name]
-                m_price = cells[col_price]
-                c_str = cells[col_change]
-                c_val = parse_change_val(c_str)
+        # データ行の解析（「1位」「2位」などの数字で始まる行）
+        rank_raw = cells[0].replace("位", "").strip()
+        if rank_raw.isdigit():
+            m_name = cells[col_name] if col_name < len(cells) else ""
+            m_price = cells[col_price] if col_price < len(cells) else ""
+            c_str = cells[col_change] if col_change < len(cells) else ""
 
-                all_data.append({
-                    "rank": int(rank_str),
-                    "name": m_name,
-                    "price": m_price,
-                    "change_val": c_val,
-                    "change_text": format_change_text(c_val)
-                })
+            # 金額が抜けた場合のフォールバック（セル内から「円」を含み符号がないものを探す）
+            if not m_price or "円" not in m_price:
+                for c in cells:
+                    if "円" in c and not any(c.startswith(s) for s in ["+", "-", "±"]):
+                        m_price = c
+                        break
+
+            # 前日差額が抜けた場合のフォールバック（セル内から符号付きのものを探す）
+            if not c_str or not any(s in c_str for s in ["+", "-", "±", "0円"]):
+                for c in cells:
+                    if any(s in c for s in ["+", "-", "±"]) and "円" in c:
+                        c_str = c
+                        break
+
+            c_val = parse_change_val(c_str)
+
+            all_data.append({
+                "rank": int(rank_raw),
+                "name": m_name,
+                "price": m_price,
+                "change_val": c_val,
+                "change_text": format_change_text(c_val)
+            })
 
     report_lines = [f"■ {category_name}"]
 
