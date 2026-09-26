@@ -7,16 +7,28 @@ from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 
 # ==========================================
-# 【注視機種の設定】（毎月ここを書き換えてください）
+# 【注視機種の設定】（ここにお好きなだけ機種名を並べてください）
 # ==========================================
-TARGET_PACHINKO = "牙狼12"
-TARGET_SLOT = "ソードアート"
+TARGET_PACHINKO = [
+    "牙狼12",
+    # "エヴァ16",
+    # "リゼロ2",
+]
+
+TARGET_SLOT = [
+    "ソードアート",
+    # "北斗の拳",
+    # "からくりサーカス",
+]
 # ==========================================
 
-def call_gemini_vision(api_key, image_path, category_name, target_keyword):
-    """Geminiにスクリーンショットを渡し、視覚的にデータを抽出する（超強力リトライ付き）"""
+
+def call_gemini_vision(api_key, image_path, category_name, target_keywords):
+    """Geminiにスクリーンショットを渡し、複数機種のデータをまとめて抽出する"""
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    keywords_str = "、".join([f"「{k}」" for k in target_keywords])
 
     prompt = f"""
 あなたはパチンコ・スロットの中古機相場表の画像解析エキスパートです。
@@ -24,10 +36,10 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
 ※平均価格は表の「平均価格」列にある金額を目視で正確に読み取ってください。
 
 【抽出ルール】
-1. 注視機種（キーワード: 「{target_keyword}」）
-   - 表内から「{target_keyword}」に該当する機種を探し、その機種名、平均価格、前日差額（前日比）を抜き出してください。
+1. 注視機種（対象キーワード: {keywords_str}）
+   - 表内から各キーワードに該当する機種をそれぞれ探し、その機種名、平均価格、前日差額（前日比）を抜き出してください。
    - 前日差額がプラスの場合は「🔴 +〇〇円」、マイナスの場合は「🔵 -〇〇円」、変動なしは「±0円」と記載してください。
-   - 見つからない場合は「（該当機種がランキング内に見つかりませんでした）」としてください。
+   - 画像内に見つからなかったキーワードは「・[指定キーワード]：（該当機種がランキング内に見つかりませんでした）」と出力してください。
 
 2. 前日比 急上昇TOP3
    - 前日差額がプラスになっている機種のうち、上昇額が大きい上位3機種を抜き出してください。
@@ -41,6 +53,7 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
 ■ {category_name}
 【注視機種相場】
  ・[機種名]：[平均価格]（前日比 [変動記号と額]）
+ （注視機種の数だけ箇条書きを並べる）
 
 【前日比 急上昇TOP3】
  1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
@@ -66,14 +79,12 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    # 混雑回避のため、flashがダメならpro回線に切り替える
     models = ["gemini-3.6-flash", "gemini-3.6-pro"]
     
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
 
-        # 各モデル最大5回リトライ（全体で最大10回）
         for attempt in range(1, 6):
             try:
                 with urllib.request.urlopen(req, timeout=90) as resp:
@@ -81,15 +92,13 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
                     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
             except urllib.error.HTTPError as e:
                 if e.code == 503:
-                    # 503エラー（混雑）の場合は待機して再トライ
-                    wait_time = attempt * 10  # 10秒→20秒→30秒と延ばす
+                    wait_time = attempt * 10
                     print(f"[{model}] サーバー混雑中... {wait_time}秒後に再試行します（{attempt}/5回目）")
                     time.sleep(wait_time)
                     continue
                 else:
-                    # 503以外のエラーの場合は次のモデルへ
                     break
-            except Exception as e:
+            except Exception:
                 time.sleep(10)
                 continue
                 
@@ -112,9 +121,10 @@ def run():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        # 表が長くても下位機種まで写るように高さを2500pxに拡張
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 2000}
+            viewport={"width": 1280, "height": 2500}
         )
         page = context.new_page()
         page.set_default_timeout(60000)
