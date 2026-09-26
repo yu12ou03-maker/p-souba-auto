@@ -14,7 +14,7 @@ TARGET_SLOT = "ソードアート"
 # ==========================================
 
 def call_gemini_vision(api_key, image_path, category_name, target_keyword):
-    """Gemini 1.5 Flashにスクリーンショットを渡し、視覚的にデータを抽出する"""
+    """Geminiにスクリーンショットを渡し、視覚的にデータを抽出する"""
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
@@ -53,51 +53,54 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
  3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
 """
 
-    # ここを 1.5-flash に変更し、確実に動作させる
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [
             {
                 "parts": [
                     {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/png",
-                            "data": image_b64
-                        }
-                    }
+                    {"inline_data": {"mime_type": "image/png", "data": image_b64}}
                 ]
             }
         ],
-        "generationConfig": {
-            "temperature": 0.1
-        }
+        "generationConfig": {"temperature": 0.1}
     }
+    data_bytes = json.dumps(payload).encode("utf-8")
 
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
+    # 2.5 と 1.5 の両方を順番に試す（エラー回避の安全策）
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    error_details = []
 
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as e:
-        return f"■ {category_name}\n（AI解析エラー: {e}）"
+    for model in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except urllib.error.HTTPError as e:
+            # エラーの「本当の理由（Googleからの返答）」を読み取る
+            try:
+                error_body = e.read().decode("utf-8", errors="ignore")
+            except:
+                error_body = "詳細取得失敗"
+            error_details.append(f"[{model}] HTTP {e.code}: {error_body}")
+        except Exception as e:
+            error_details.append(f"[{model}] ネットワークエラー: {e}")
+
+    # すべてのモデルで失敗した場合は、エラー詳細を丸ごと書き出す
+    err_text = "\n".join(error_details)
+    return f"■ {category_name}\n（AI解析エラー詳細:\n{err_text}\n）"
 
 
 def run():
     username = os.environ.get("P_SOUBA_USER")
     password = os.environ.get("P_SOUBA_PASS")
-    # 万が一見えない改行や空白が入っていても `.strip()` で綺麗に取り除く安全設計
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
     if not username or not password:
         raise ValueError("中古機相場のログイン情報が設定されていません。")
     if not gemini_key:
-        raise ValueError("GEMINI_API_KEY が設定されていません。GitHubのSecretsを確認してください。")
+        raise ValueError("GEMINI_API_KEY が設定されていません。")
 
     os.makedirs("screenshots", exist_ok=True)
     pachinko_img = "screenshots/pachinko_ranking.png"
