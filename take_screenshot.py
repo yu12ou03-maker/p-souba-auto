@@ -14,7 +14,7 @@ TARGET_SLOT = "ソードアート"
 # ==========================================
 
 def call_gemini_vision(api_key, image_path, category_name, target_keyword):
-    """Gemini 2.5 Flashにスクリーンショットを渡し、視覚的にデータを抽出する"""
+    """Gemini 1.5 Flashにスクリーンショットを渡し、視覚的にデータを抽出する"""
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
@@ -53,7 +53,8 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
  3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
 """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    # ここを 1.5-flash に変更し、確実に動作させる
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [
             {
@@ -86,10 +87,12 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
     except Exception as e:
         return f"■ {category_name}\n（AI解析エラー: {e}）"
 
+
 def run():
     username = os.environ.get("P_SOUBA_USER")
     password = os.environ.get("P_SOUBA_PASS")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
+    # 万が一見えない改行や空白が入っていても `.strip()` で綺麗に取り除く安全設計
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
     if not username or not password:
         raise ValueError("中古機相場のログイン情報が設定されていません。")
@@ -108,6 +111,7 @@ def run():
             viewport={"width": 1280, "height": 2000}
         )
         page = context.new_page()
+        page.set_default_timeout(60000)
 
         # 1. ログイン
         print("ログイン中...")
@@ -118,7 +122,12 @@ def run():
         form.locator('input[type="text"]').first.fill(username)
         pass_input.fill(password)
         time.sleep(1)
-        pass_input.press("Enter")
+        
+        submit_btn = form.locator('input[type="submit"], input[type="image"], button')
+        if submit_btn.count() > 0:
+            submit_btn.first.click()
+        else:
+            pass_input.press("Enter")
         page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
@@ -150,6 +159,7 @@ def run():
         f.write(full_report)
 
     print("レポート生成完了（latest_report.txt に保存しました）")
+
 
 if __name__ == "__main__":
     run()
