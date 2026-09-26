@@ -72,23 +72,19 @@ def analyze_ranking_table(page, category_name, target_keywords):
             m_price = ""
             c_str = ""
 
-            # 【確実な金額・変動額の抽出】
-            # 行の中にある全てのテキストから、金額の形式に合うものを探し出す
+            # 【絶対失敗しない抽出ロジック】
+            # 「円」が含まれるセルのうち、符号付きなら差額、符号なしなら平均価格
             for c in cells:
-                c_clean = c.replace(" ", "")
-                # 変動額（+や-から始まり、円で終わる、または0円）
-                if (c_clean.startswith('+') or c_clean.startswith('-') or c_clean.startswith('±') or c_clean == '0円') and '円' in c_clean:
-                    c_str = c_clean
-                    continue
-                # 平均金額（数字とカンマだけで構成され、円がつくもの。+や-はつかない）
-                if re.match(r'^\d{1,3}(,\d{3})*(円)?$', c_clean):
-                    m_price = c_clean
-                    if not m_price.endswith('円'):
-                        m_price += '円'
+                c_clean = c.strip()
+                if "円" in c_clean:
+                    if c_clean.startswith("+") or c_clean.startswith("-") or c_clean.startswith("±") or c_clean == "0円":
+                        c_str = c_clean
+                    else:
+                        m_price = c_clean
 
-            # 万が一金額が空の場合は「価格不明」とする
-            if not m_price:
-                m_price = "価格不明"
+            # 万が一「円」が取れなかった場合の予備（5列目のテキスト）
+            if not m_price and len(cells) > 5:
+                m_price = cells[5]
 
             c_val = parse_change_val(c_str)
 
