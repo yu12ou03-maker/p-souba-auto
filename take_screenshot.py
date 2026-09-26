@@ -7,14 +7,13 @@ from playwright.sync_api import sync_playwright
 
 # ==========================================
 # 【注視機種の設定】（毎月ここを書き換えてください）
-# 表記ゆれに対応しているため、機種名の一部でOKです
 # ==========================================
 TARGET_PACHINKO = [
     "牙狼12",
 ]
 
 TARGET_SLOT = [
-    "ソードアート",  # 「ソードアートオンライン」「SAO」等にヒット
+    "ソードアート",
 ]
 # ==========================================
 
@@ -25,7 +24,7 @@ def normalize_text(text):
 
 
 def parse_change_val(val_str):
-    """前日比の文字列を数値（整数）に変換する"""
+    """前日差額の文字列を数値（整数）に変換する"""
     clean_str = val_str.replace(",", "").replace("円", "").replace(" ", "").strip()
     if clean_str in ["-", "±0", "0", ""]:
         return 0
@@ -46,14 +45,13 @@ def format_change_text(change_val):
 
 
 def analyze_ranking_table(page, category_name, target_keywords):
-    """ランキングページから指定機種と前日比の急変動機種を抽出する"""
+    """ランキングページから指定機種と前日差額の急変動機種を抽出する"""
     rows = page.locator("table tr").all()
     all_data = []
 
-    # 表データの解析（ヘッダー行から前日比の列を特定）
     col_name = 2
-    col_price = 3
-    col_change = 4  # デフォルトは4列目（前日比）
+    col_price = 5
+    col_change = 6
 
     header_found = False
     for row in rows:
@@ -61,21 +59,21 @@ def analyze_ranking_table(page, category_name, target_keywords):
         if not cells:
             continue
 
-        # ヘッダー列の自動判定
-        if not header_found and any("前日比" in c for c in cells):
+        # ヘッダー列の自動判定（「前日」が含まれる列を探す）
+        if not header_found and any("前日" in c for c in cells):
             for idx, c in enumerate(cells):
                 if "機種" in c:
                     col_name = idx
-                elif "相場" in c:
+                elif "価格" in c or "相場" in c:
                     col_price = idx
-                elif "前日比" in c:
+                elif "前日" in c:
                     col_change = idx
             header_found = True
             continue
 
         # データ行の解析
         if len(cells) > max(col_name, col_price, col_change):
-            rank_str = cells[0]
+            rank_str = cells[0].replace("位", "").strip() # 「位」を取り除いて数字だけにする
             if rank_str.isdigit():
                 m_name = cells[col_name]
                 m_price = cells[col_price]
@@ -99,8 +97,7 @@ def analyze_ranking_table(page, category_name, target_keywords):
         norm_kw = normalize_text(kw)
         for item in all_data:
             if norm_kw in normalize_text(item["name"]):
-                price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
-                report_lines.append(f" ・{item['name']}：{price_disp}（前日比 {item['change_text']}）")
+                report_lines.append(f" ・{item['name']}：{item['price']}（前日比 {item['change_text']}）")
                 matched_any = True
                 break
     if not matched_any:
@@ -112,8 +109,7 @@ def analyze_ranking_table(page, category_name, target_keywords):
     up_items.sort(key=lambda x: x["change_val"], reverse=True)
     if up_items:
         for idx, item in enumerate(up_items[:3], 1):
-            price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
-            report_lines.append(f" {idx}位 {item['name']}：{price_disp}（前日比 {item['change_text']}）")
+            report_lines.append(f" {idx}位 {item['name']}：{item['price']}（前日比 {item['change_text']}）")
     else:
         report_lines.append(" （値上がり機種なし）")
 
@@ -123,8 +119,7 @@ def analyze_ranking_table(page, category_name, target_keywords):
     down_items.sort(key=lambda x: x["change_val"])  # マイナスが大きい順
     if down_items:
         for idx, item in enumerate(down_items[:3], 1):
-            price_disp = f"約{item['price']}万円" if item['price'] != "-" else "相場なし"
-            report_lines.append(f" {idx}位 {item['name']}：{price_disp}（前日比 {item['change_text']}）")
+            report_lines.append(f" {idx}位 {item['name']}：{item['price']}（前日比 {item['change_text']}）")
     else:
         report_lines.append(" （値下がり機種なし）")
 
