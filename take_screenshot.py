@@ -1,15 +1,10 @@
 import os
 import time
-import base64
-import json
-import urllib.request
 from playwright.sync_api import sync_playwright
+import google.generativeai as genai
 
-def analyze_image_with_gemini(image_path, category_name, api_key):
-    """撮影したスクショをGeminiに読ませて指定フォーマットのテキストを生成する"""
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode("utf-8")
-
+def analyze_image_with_gemini(image_path, category_name):
+    """公式ライブラリを使って画像をGeminiに解析させる"""
     prompt = f"""
 この画像はパチンコ・パチスロの中古機相場ランキングのスクリーンショットです。
 以下の【出力ルール】を厳格に守り、【{category_name}中古機相場TOP5】のテキストを作成してください。
@@ -32,36 +27,20 @@ def analyze_image_with_gemini(image_path, category_name, api_key):
  4位 機種名：約〇〇万円（前週比 🔵 -〇〇円）
  5位 機種名：約〇〇万円（前週比 ±0円）
 """
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": image_data
-                    }
-                }
-            ]
-        }]
-    }
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-
     try:
-        with urllib.request.urlopen(req) as res:
-            result = json.loads(res.read().decode("utf-8"))
-            return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # 画像を読み込んでAPIに送信
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        sample_file = genai.upload_file(path=image_path)
+        
+        response = model.generate_content([prompt, sample_file])
+        
+        # サーバー上の画像を削除（念のため）
+        genai.delete_file(sample_file.name)
+        
+        return response.text.strip()
     except Exception as e:
         print(f"Gemini解析エラー ({category_name}): {e}")
         return f"{category_name}中古機相場TOP5\n（取得エラーが発生しました）"
-
 
 def run():
     username = os.environ.get("P_SOUBA_USER")
@@ -73,6 +52,8 @@ def run():
     if not gemini_key:
         raise ValueError("GEMINI_API_KEY が設定されていません。")
 
+    # APIキーの初期設定
+    genai.configure(api_key=gemini_key)
     os.makedirs("screenshots", exist_ok=True)
 
     with sync_playwright() as p:
@@ -101,7 +82,6 @@ def run():
             submit_btn.first.click()
         else:
             pass_input.press("Enter")
-
         page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
@@ -123,15 +103,19 @@ def run():
 
     # 4. Geminiによる自動解析・テキスト作成
     print("Geminiによる相場データ自動作成中...")
-    pachinko_text = analyze_image_with_gemini(p_path, "パチンコ", gemini_key)
-    pachislot_text = analyze_image_with_gemini(s_path, "パチスロ", gemini_key)
+    pachinko_text = analyze_image_with_gemini(p_path, "パチンコ")
+    pachislot_text = analyze_image_with_gemini(s_path, "パチスロ")
 
-    full_report = f"{pachinko_text}\n\n{pachislot_text}\n"
+    # 現在時刻を付与して保存内容が毎回変わるようにする（上書きされない対策）
+    from datetime import datetime, timezone, timedelta
+    jst = timezone(timedelta(hours=+9), 'JST')
+    now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
+
+    full_report = f"【{now_str}】\n\n{pachinko_text}\n\n{pachislot_text}\n"
 
     # レポートファイルとして保存
     with open("latest_report.txt", "w", encoding="utf-8") as f:
         f.write(full_report)
-
     print("レポート生成完了（latest_report.txt に保存しました）")
 
 if __name__ == "__main__":
