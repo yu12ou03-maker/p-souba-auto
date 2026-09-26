@@ -15,12 +15,12 @@ def run():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 1800}
+            viewport={"width": 1280, "height": 1080}
         )
         page = context.new_page()
         page.set_default_timeout(60000)
 
-        # 1. トップページへアクセスしてログイン（http接続）
+        # 1. トップページへアクセスしてログイン
         print("トップページへアクセス中...")
         page.goto("http://www.p-souba.com/index.php", wait_until="domcontentloaded")
         time.sleep(3)
@@ -42,20 +42,20 @@ def run():
         page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
-        # 2. パチンコ相場ランキングのスクショ撮影（http接続）
+        # 2. パチンコ相場ランキングのスクショ撮影（下位まで全画面撮影）
         print("パチンコ相場ランキングを撮影中...")
-        page.goto("http://www.p-souba.com/ranking_p.php", wait_until="domcontentloaded")
+        page.goto("http://www.p-souba.com/krank_1.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        page.screenshot(path="screenshots/pachinko_ranking.png")
+        page.screenshot(path="screenshots/pachinko_ranking.png", full_page=True)
 
-        # 3. パチスロ相場ランキングのスクショ撮影（http接続）
+        # 3. パチスロ相場ランキングのスクショ撮影（下位まで全画面撮影）
         print("パチスロ相場ランキングを撮影中...")
-        page.goto("http://www.p-souba.com/ranking_s.php", wait_until="domcontentloaded")
+        page.goto("http://www.p-souba.com/krank_2.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        page.screenshot(path="screenshots/pachislot_ranking.png")
+        page.screenshot(path="screenshots/pachislot_ranking.png", full_page=True)
 
         browser.close()
-        print("ログインおよびスクショ撮影が完了しました。")
+        print("ログインおよび下位までのスクショ撮影が完了しました。")
 
 if __name__ == "__main__":
     run()
