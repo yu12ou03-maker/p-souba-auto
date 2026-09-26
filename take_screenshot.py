@@ -13,43 +13,46 @@ def run():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1280, "height": 1800})
+        # 一般的なPCブラウザの通信として設定
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 1800}
+        )
+        page = context.new_page()
+        page.set_default_timeout(60000)
 
         # 1. トップページへアクセスしてログイン
         print("トップページへアクセス中...")
-        page.goto("https://www.p-souba.com/index.php", wait_until="networkidle")
-        time.sleep(2)
+        page.goto("https://www.p-souba.com/index.php", wait_until="domcontentloaded")
+        time.sleep(3)
 
         print("自動ログインを実行中...")
-        # パスワード入力欄から所属フォームを特定
         pass_input = page.locator('input[type="password"]').first
         form = pass_input.locator("xpath=./ancestor::form")
         
-        # フォーム内のID欄とパスワード欄に入力
         form.locator('input[type="text"]').first.fill(username)
         pass_input.fill(password)
         time.sleep(1)
 
-        # ログインボタンをクリック
         submit_btn = form.locator('input[type="submit"], input[type="image"], button')
         if submit_btn.count() > 0:
             submit_btn.first.click()
         else:
             pass_input.press("Enter")
 
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
         time.sleep(3)
 
         # 2. パチンコ相場ランキングのスクショ撮影
         print("パチンコ相場ランキングを撮影中...")
-        page.goto("https://www.p-souba.com/ranking_p.php", wait_until="networkidle")
-        time.sleep(2)
+        page.goto("https://www.p-souba.com/ranking_p.php", wait_until="domcontentloaded")
+        time.sleep(3)
         page.screenshot(path="screenshots/pachinko_ranking.png")
 
         # 3. パチスロ相場ランキングのスクショ撮影
         print("パチスロ相場ランキングを撮影中...")
-        page.goto("https://www.p-souba.com/ranking_s.php", wait_until="networkidle")
-        time.sleep(2)
+        page.goto("https://www.p-souba.com/ranking_s.php", wait_until="domcontentloaded")
+        time.sleep(3)
         page.screenshot(path="screenshots/pachislot_ranking.png")
 
         browser.close()
