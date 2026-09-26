@@ -66,8 +66,14 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    # 新規ユーザーでも利用可能な「2.5-pro」を最優先で指定！
-    models_to_try = ["gemini-2.5-pro", "gemini-2.5-flash"]
+    # 3.6 を最優先で指定
+    models_to_try = [
+        "gemini-3.6-flash",
+        "gemini-3.6-pro",
+        "gemini-3.5-flash",
+        "gemini-3.5-pro"
+    ]
+    
     error_details = []
 
     for model in models_to_try:
@@ -106,7 +112,6 @@ def run():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # 表の全体が広く写るように高さを大きめに確保
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 2000}
