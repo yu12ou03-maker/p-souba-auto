@@ -14,7 +14,7 @@ TARGET_SLOT = "ソードアート"
 # ==========================================
 
 def call_gemini_vision(api_key, image_path, category_name, target_keyword):
-    """Geminiにスクリーンショットを渡し、視覚的にデータを抽出する（自動再試行付き）"""
+    """Geminiにスクリーンショットを渡し、視覚的にデータを抽出する（超強力リトライ付き）"""
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode("utf-8")
 
@@ -66,33 +66,34 @@ def call_gemini_vision(api_key, image_path, category_name, target_keyword):
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    # 実績のある 3.6-flash を使用
-    model = "gemini-3.6-flash"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
+    # 混雑回避のため、flashがダメならpro回線に切り替える
+    models = ["gemini-3.6-flash", "gemini-3.6-pro"]
+    
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
 
-    # 混雑エラー(503)に備えて最大3回自動リトライ
-    for attempt in range(1, 4):
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except urllib.error.HTTPError as e:
-            if e.code == 503 and attempt < 3:
-                time.sleep(7)  # 503の場合は7秒待って再トライ
-                continue
+        # 各モデル最大5回リトライ（全体で最大10回）
+        for attempt in range(1, 6):
             try:
-                error_body = e.read().decode("utf-8", errors="ignore")
-            except:
-                error_body = "詳細取得失敗"
-            return f"■ {category_name}\n（AI解析エラー: HTTP {e.code} - {error_body}）"
-        except Exception as e:
-            if attempt < 3:
-                time.sleep(5)
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except urllib.error.HTTPError as e:
+                if e.code == 503:
+                    # 503エラー（混雑）の場合は待機して再トライ
+                    wait_time = attempt * 10  # 10秒→20秒→30秒と延ばす
+                    print(f"[{model}] サーバー混雑中... {wait_time}秒後に再試行します（{attempt}/5回目）")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # 503以外のエラーの場合は次のモデルへ
+                    break
+            except Exception as e:
+                time.sleep(10)
                 continue
-            return f"■ {category_name}\n（AI解析エラー: {e}）"
-
-    return f"■ {category_name}\n（AI解析タイムアウト）"
+                
+    return f"■ {category_name}\n（AI解析エラー: サーバーの大混雑により抽出できませんでした。しばらく時間をおいてから再度お試しください。）"
 
 
 def run():
@@ -150,13 +151,14 @@ def run():
 
         browser.close()
 
-    # 4. Geminiによる画像解析（パチンコ解析後、10秒間隔を空けてスロットを実行）
-    print("Geminiによる相場画像解析を実行中...")
+    # 4. Geminiによる画像解析
+    print("Geminiによるパチンコ相場画像解析を実行中...")
     pachinko_report = call_gemini_vision(gemini_key, pachinko_img, "パチンコ", TARGET_PACHINKO)
     
-    print("API待機中（10秒）...")
-    time.sleep(10)
+    print("API待機中（15秒）...")
+    time.sleep(15)
     
+    print("Geminiによるパチスロ相場画像解析を実行中...")
     pachislot_report = call_gemini_vision(gemini_key, pachislot_img, "パチスロ", TARGET_SLOT)
 
     # 5. レポート書き出し
