@@ -17,7 +17,8 @@ TARGET_SLOT = ["ソードアート"]
 
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-1.5-flash-latest')
+    # 【修正箇所】末尾の「-latest」を削除し、正しいモデル名に修正しました
+    return genai.GenerativeModel('gemini-1.5-flash')
 
 def analyze_image_with_gemini(model, image_path, category_name, target_keywords):
     print(f"{category_name}の画像をAIで解析中...")
@@ -60,7 +61,6 @@ def analyze_image_with_gemini(model, image_path, category_name, target_keywords)
  3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
 """
 
-    # AIのセーフティフィルターを全解除（ギャンブル関連ワードでのエラー落ちを防ぐ）
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -93,7 +93,6 @@ def send_to_drive(report_text):
         print("ドライブ送信エラー:", e)
 
 def capture_table(page, url, output_path):
-    """ページ全体ではなく、ランキング表の部分だけを自動で切り抜いて撮影する"""
     page.goto(url)
     time.sleep(4)
     
@@ -107,10 +106,8 @@ def capture_table(page, url, output_path):
                 break
                 
     if target_locator:
-        # 表の部分だけを超高画質で切り抜き撮影
         target_locator.screenshot(path=output_path)
     else:
-        # 万が一見つからなければ全体撮影
         page.screenshot(path=output_path, full_page=True)
 
 
@@ -157,7 +154,6 @@ def run():
 
         browser.close()
 
-    # 撮影した表の画像をAIに渡してテキスト化
     pachinko_report = analyze_image_with_gemini(model, "screenshots/pachinko.png", "パチンコ", TARGET_PACHINKO)
     time.sleep(3)
     slot_report = analyze_image_with_gemini(model, "screenshots/slot.png", "パチスロ", TARGET_SLOT)
