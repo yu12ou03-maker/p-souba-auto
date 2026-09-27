@@ -17,8 +17,7 @@ TARGET_SLOT = ["ソードアート"]
 
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
-    # 【最重要修正】廃止された「1.5」ではなく、現在稼働している最新モデル「gemini-2.5-flash」を指定します
-    return genai.GenerativeModel('gemini-2.5-flash')
+    return genai.GenerativeModel('gemini-3.6-flash')
 
 def analyze_image_with_gemini(model, image_path, category_name, target_keywords):
     print(f"{category_name}の画像をAIで解析中...")
@@ -79,7 +78,6 @@ def analyze_image_with_gemini(model, image_path, category_name, target_keywords)
         print(f"Gemini APIエラー: {e}")
         return f"■ {category_name}相場\n（AI解析エラーが発生しました。詳細: {e}）"
 
-
 def send_to_drive(report_text):
     req = urllib.request.Request(
         GAS_URL,
@@ -109,7 +107,6 @@ def capture_table(page, url, output_path):
         target_locator.screenshot(path=output_path)
     else:
         page.screenshot(path=output_path, full_page=True)
-
 
 def run():
     username = os.environ.get("P_SOUBA_USER")
