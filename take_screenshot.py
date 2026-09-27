@@ -9,98 +9,70 @@ from playwright.sync_api import sync_playwright
 GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
 
 # ==========================================
-# 【注視機種の設定】（ここに対象の機種名・キーワードを入れます）
+# 【注視機種の設定】（対象の機種名を指定）
 # ==========================================
 TARGET_PACHINKO = [
     "牙狼12",
-    # "大海物語5",
 ]
 
 TARGET_SLOT = [
     "ソードアート",
-    # "からくりサーカス",
 ]
 # ==========================================
 
-
 def extract_data(html_content, target_keywords):
-    """HTMLから柔軟に表データを抽出し、レポートを作成する"""
     soup = BeautifulSoup(html_content, "html.parser")
     rows = soup.find_all("tr")
     
     parsed_data = []
     
     for row in rows:
-        row_str = row.get_text(separator=" ", strip=True)
-        
-        # 相場データ行には必ず「円」が含まれる
-        if "円" not in row_str:
-            continue
-            
         cells = row.find_all(["td", "th"])
-        if not cells:
+        # 最低限の列数がない行はスキップ
+        if len(cells) < 5:
             continue
             
-        cell_texts = [c.get_text(strip=True) for c in cells if c.get_text(strip=True)]
-        if len(cell_texts) < 2:
+        cell_texts = [c.get_text(strip=True) for c in cells]
+        
+        # 1列目：順位
+        rank_str = cell_texts[0]
+        rank_match = re.match(r'^(\d+)', rank_str)
+        if not rank_match:
             continue
-
-        # 1. 機種名の特定: リンク（<a>タグ）があればそれを採用、なければ最長の文字列
-        machine_name = ""
-        a_tag = row.find("a")
-        if a_tag and len(a_tag.get_text(strip=True)) > 1:
-            machine_name = a_tag.get_text(strip=True)
-        else:
-            candidates = [t for t in cell_texts if "円" not in t and not re.match(r'^\d+$', t)]
-            if candidates:
-                machine_name = max(candidates, key=len)
-                
-        if not machine_name:
-            continue
-
-        # 2. 金額・前日比の特定（「〇〇円」のパターンをすべて抽出）
-        money_matches = re.findall(r'([+\-＋－±]?\s*[\d,]+円)', row_str)
-        if not money_matches:
-            continue
+        rank = rank_match.group(1)
             
+        # 3列目：機種名 (サイト構造: 順位 | メーカー | 機種名)
+        machine_name = cell_texts[2]
+        if not machine_name or machine_name == "機種名":
+            continue
+
         price_str = ""
         price_val = 0
         diff_str = "±0円"
         diff_val = 0
         
-        for m in money_matches:
-            clean_m = m.replace(" ", "").replace("＋", "+").replace("－", "-")
-            # 符号（+、-、±）がある場合は「前日比」と判断
-            if any(sign in clean_m for sign in ["+", "-", "±"]):
-                diff_str = clean_m
-                num_part = re.sub(r'[^\d+-]', '', clean_m)
-                try:
-                    diff_val = int(num_part)
-                except ValueError:
-                    diff_val = 0
+        # 4列目以降から、価格（数字のみ）と前日比（＋－記号あり）を探す
+        for i in range(3, len(cell_texts)):
+            raw_text = cell_texts[i]
+            
+            # 記号（+ - ±）が含まれていれば前日比
+            if any(sign in raw_text for sign in ["+", "-", "＋", "－", "±"]):
+                diff_str = raw_text
+                if not diff_str.endswith("円"):
+                    diff_str += "円"
+                num_part = re.sub(r'[^\d+-]', '', diff_str.replace("＋", "+").replace("－", "-"))
+                try: diff_val = int(num_part)
+                except: diff_val = 0
+            
+            # 記号がなく、カンマや円を除いて数字だけになるなら平均価格（最初に見つけた数字）
             else:
-                # 符号がないものは「相場価格」と判断
-                if not price_str:
-                    price_str = clean_m
-                    num_part = re.sub(r'[^\d]', '', clean_m)
-                    try:
-                        price_val = int(num_part)
-                    except ValueError:
-                        price_val = 0
-
-        # もし本体価格が空なら先頭の金額を採用
-        if not price_str and money_matches:
-            price_str = money_matches[0]
-            num_part = re.sub(r'[^\d]', '', price_str)
-            price_val = int(num_part) if num_part else 0
-
-        # 3. 順位の特定（数字または「〇位」）
-        rank = ""
-        for t in cell_texts:
-            m = re.match(r'^(\d+)(位)?$', t)
-            if m:
-                rank = m.group(1)
-                break
+                clean_txt = raw_text.replace("円", "").replace(",", "").strip()
+                if clean_txt.isdigit() and not price_str:
+                    price_str = raw_text
+                    if not price_str.endswith("円"):
+                        price_str += "円"
+                    try: price_val = int(clean_txt)
+                    except: price_val = 0
 
         parsed_data.append({
             "rank": rank,
@@ -110,16 +82,10 @@ def extract_data(html_content, target_keywords):
             "diff": diff_str,
             "diff_num": diff_val
         })
-        
-    # 順位が画像アイコン等で空だった場合は、上から順に連番（1, 2, 3...）を補完
-    for idx, d in enumerate(parsed_data, 1):
-        if not d["rank"]:
-            d["rank"] = str(idx)
 
     # --- レポート生成 ---
     report_lines = []
     
-    # 1. 上位3位
     report_lines.append("【相場 上位3位】")
     for i in range(min(3, len(parsed_data))):
         d = parsed_data[i]
@@ -127,7 +93,6 @@ def extract_data(html_content, target_keywords):
     if not parsed_data:
         report_lines.append(" （データが見つかりませんでした）")
 
-    # 2. 注視機種
     report_lines.append("\n【注視機種相場】")
     for keyword in target_keywords:
         found = False
@@ -139,7 +104,6 @@ def extract_data(html_content, target_keywords):
         if not found:
             report_lines.append(f" ・{keyword}：（ランキング内に見つかりませんでした）")
 
-    # 3. 急上昇TOP3
     report_lines.append("\n【前日比 急上昇TOP3】")
     up_data = [d for d in parsed_data if d["diff_num"] > 0]
     up_data.sort(key=lambda x: x["diff_num"], reverse=True)
@@ -149,7 +113,6 @@ def extract_data(html_content, target_keywords):
     if not up_data:
         report_lines.append(" （値上がり機種なし）")
 
-    # 4. 急降下TOP3
     report_lines.append("\n【前日比 急降下TOP3】")
     down_data = [d for d in parsed_data if d["diff_num"] < 0]
     down_data.sort(key=lambda x: x["diff_num"])
@@ -159,7 +122,6 @@ def extract_data(html_content, target_keywords):
     if not down_data:
         report_lines.append(" （値下がり機種なし）")
 
-    # 5. 全機種データ（Gemini参照用）
     report_lines.append("\n\n--- 以下、全取得データ ---")
     for d in parsed_data:
         report_lines.append(f"{d['rank']}位\t{d['name']}\t{d['price']}\t{d['diff']}")
@@ -212,18 +174,18 @@ def run():
             pass_input.press("Enter")
         time.sleep(3)
 
-        # 2. パチンコ相場データ取得（フレーム構造にも完全対応）
+        # 2. パチンコ相場データ取得
         print("パチンコ相場データを取得中...")
         page.goto("http://www.p-souba.com/krank_1.htm")
         time.sleep(3)
-        pachinko_html = "\n".join([f.content() for f in page.frames])
+        pachinko_html = "\n".join([f.content() for f in page.frames]) if page.frames else page.content()
         pachinko_report = extract_data(pachinko_html, TARGET_PACHINKO)
 
-        # 3. パチスロ相場データ取得（フレーム構造にも完全対応）
+        # 3. パチスロ相場データ取得
         print("パチスロ相場データを取得中...")
         page.goto("http://www.p-souba.com/krank_2.htm")
         time.sleep(3)
-        pachislot_html = "\n".join([f.content() for f in page.frames])
+        pachislot_html = "\n".join([f.content() for f in page.frames]) if page.frames else page.content()
         pachislot_report = extract_data(pachislot_html, TARGET_SLOT)
 
         browser.close()
