@@ -22,8 +22,27 @@ TARGET_SLOT = [
 
 def extract_data(html_content, target_keywords):
     soup = BeautifulSoup(html_content, "html.parser")
-    rows = soup.find_all("tr")
     
+    # 【セキュリティ突破処理】
+    # 価格が「1.gif」「c.gif(カンマ)」などの画像で偽装されているのを文字に戻す
+    for img in soup.find_all("img"):
+        src = img.get("src", "").lower()
+        alt = img.get("alt", "")
+        
+        # alt属性に数字が入っていればそれを採用
+        if alt and re.match(r'^[\d,]$', alt):
+            img.replace_with(alt)
+            continue
+            
+        # 画像ファイル名から数字（0〜9）やカンマを抽出して文字に置き換える
+        filename = src.split("/")[-1]
+        m = re.match(r'^.*?(\d)\.gif$', filename)
+        if m:
+            img.replace_with(m.group(1))
+        elif "c.gif" in filename or "comma" in filename:
+            img.replace_with(",")
+
+    rows = soup.find_all("tr")
     parsed_data = []
     
     for row in rows:
@@ -49,7 +68,7 @@ def extract_data(html_content, target_keywords):
         diff_str = "±0円"
         diff_val = 0
         
-        # 4列目以降から数字を探す
+        # 4列目以降から数字を探す（画像偽装を突破したテキストから探す）
         for i in range(3, len(cell_texts)):
             raw_text = cell_texts[i]
             
@@ -62,10 +81,11 @@ def extract_data(html_content, target_keywords):
                 try: diff_val = int(num_part)
                 except: diff_val = 0
             
-            # 記号がないものは「価格」の候補としてすべてストックする
+            # 記号がないものは「価格」の候補として抽出
             else:
                 if "/" in raw_text or "導入" in raw_text:
                     continue
+                # 画像から変換された数字が繋がって「1,234,567」のようになっている
                 m = re.search(r'[\d,]+', raw_text)
                 if m:
                     extracted = m.group(0)
@@ -76,7 +96,7 @@ def extract_data(html_content, target_keywords):
         price_str = "0円"
         price_val = 0
         if price_candidates:
-            # 「17（台）」などの小さい数字を無視し、候補の中で「一番大きい数字」を価格とする
+            # 抽出された数字の中で一番大きい金額を「価格」とする（稼働週などを弾く）
             best_price = max(price_candidates, key=lambda x: x[1])
             price_str = best_price[0]
             if not price_str.endswith("円"):
