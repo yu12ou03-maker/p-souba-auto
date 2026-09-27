@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 
 # ==========================================
-# 【注視機種の設定】（ここにお好きなだけ機種名を並べてください）
+# 【注視機種の設定】   "大海物語5",
 # ==========================================
 TARGET_PACHINKO = [
     "牙狼12",
