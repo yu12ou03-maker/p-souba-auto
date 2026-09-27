@@ -8,18 +8,12 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
 
-# ==========================================
-# 【注視機種の設定】
-# ==========================================
-TARGET_PACHINKO = ["牙狼12"]
-TARGET_SLOT = ["ソードアート"]
-# ==========================================
-
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
+    # お客様ご契約の3.6を指定
     return genai.GenerativeModel('gemini-3.6-flash')
 
-def analyze_image_with_gemini(model, image_path, category_name, target_keywords):
+def analyze_image_with_gemini(model, image_path, category_name):
     print(f"{category_name}の画像をAIで解析中...")
     
     from PIL import Image
@@ -28,36 +22,15 @@ def analyze_image_with_gemini(model, image_path, category_name, target_keywords)
     except Exception as e:
         return f"■ {category_name}相場\n（画像読み込みエラー: {e}）"
 
-    keywords_str = "、".join(target_keywords)
-
+    # AIへの指示：特定の機種を探すのではなく、全部をそのまま書き出させる
     prompt = f"""
-あなたは中古機相場表の画像解析エキスパートです。
-添付された表の画像から、正確な「機種名」「平均価格」「前日差額」を読み取ってください。
-
-【抽出ルール】
-1. 相場 上位3位（ランキング1位〜3位）
-2. 注視機種（対象: {keywords_str}）※見つからなければ「見つかりませんでした」
-3. 前日比 急上昇TOP3（プラスの中で額が大きい順）
-4. 前日比 急降下TOP3（マイナスの中で額が大きい順）
+あなたはデータ入力の専門家です。
+添付された中古機相場の表画像に写っている【すべての機種データ】を、一切省略せずに1位から順番に全て書き出してください。
+途中で「...」などで省略することは絶対に許可しません。写っている全件を出力してください。
 
 【出力フォーマット】
-【相場 上位3位】
- 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
-
-【注視機種相場】
- ・[機種名]：[平均価格]（前日比 [変動記号と額]）
-
-【前日比 急上昇TOP3】
- 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
-
-【前日比 急降下TOP3】
- 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
- 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+（以下のタブ区切り形式で出力してください）
+[順位]位\t[機種名]\t[平均価格]\t[前日差額]
 """
 
     safety_settings = {
@@ -73,7 +46,7 @@ def analyze_image_with_gemini(model, image_path, category_name, target_keywords)
             safety_settings=safety_settings,
             generation_config={"temperature": 0.0}
         )
-        return f"■ {category_name}相場\n" + response.text.strip()
+        return f"■ {category_name}相場 (全取得データ)\n" + response.text.strip()
     except Exception as e:
         print(f"Gemini APIエラー: {e}")
         return f"■ {category_name}相場\n（AI解析エラーが発生しました。詳細: {e}）"
@@ -151,9 +124,15 @@ def run():
 
         browser.close()
 
-    pachinko_report = analyze_image_with_gemini(model, "screenshots/pachinko.png", "パチンコ", TARGET_PACHINKO)
-    time.sleep(3)
-    slot_report = analyze_image_with_gemini(model, "screenshots/slot.png", "パチスロ", TARGET_SLOT)
+    # パチンコ解析
+    pachinko_report = analyze_image_with_gemini(model, "screenshots/pachinko.png", "パチンコ")
+    
+    # APIの連続呼び出し制限（429エラー）を回避するため30秒待機
+    print("API制限回避のため30秒待機中...")
+    time.sleep(30)
+    
+    # パチスロ解析
+    slot_report = analyze_image_with_gemini(model, "screenshots/slot.png", "パチスロ")
 
     jst = timezone(timedelta(hours=+9), 'JST')
     now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
