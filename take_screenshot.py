@@ -40,17 +40,16 @@ def extract_data(html_content, target_keywords):
             continue
         rank = rank_match.group(1)
             
-        # 3列目：機種名 (サイト構造: 順位 | メーカー | 機種名)
+        # 3列目：機種名
         machine_name = cell_texts[2]
         if not machine_name or machine_name == "機種名":
             continue
 
-        price_str = ""
-        price_val = 0
+        price_candidates = []
         diff_str = "±0円"
         diff_val = 0
         
-        # 4列目以降から価格と前日比を探す
+        # 4列目以降から数字を探す
         for i in range(3, len(cell_texts)):
             raw_text = cell_texts[i]
             
@@ -63,29 +62,31 @@ def extract_data(html_content, target_keywords):
                 try: diff_val = int(num_part)
                 except: diff_val = 0
             
-            # 記号がないものは平均価格の候補
+            # 記号がないものは「価格」の候補としてすべてストックする
             else:
-                # 導入日などの日付（/入り）は無視
                 if "/" in raw_text or "導入" in raw_text:
                     continue
-                    
-                # 文字列の中から数字とカンマの連続を強制的に抽出
                 m = re.search(r'[\d,]+', raw_text)
-                if m and not price_str:
+                if m:
                     extracted = m.group(0)
                     clean_num = extracted.replace(",", "")
-                    # 3桁以上の数字が見つかれば価格として採用する
-                    if len(clean_num) >= 3 or (clean_num.isdigit() and int(clean_num) >= 0):
-                        price_str = extracted
-                        if not price_str.endswith("円"):
-                            price_str += "円"
-                        try: price_val = int(clean_num)
-                        except: price_val = 0
+                    if clean_num.isdigit():
+                        price_candidates.append((extracted, int(clean_num)))
+
+        price_str = "0円"
+        price_val = 0
+        if price_candidates:
+            # 「17（台）」などの小さい数字を無視し、候補の中で「一番大きい数字」を価格とする
+            best_price = max(price_candidates, key=lambda x: x[1])
+            price_str = best_price[0]
+            if not price_str.endswith("円"):
+                price_str += "円"
+            price_val = best_price[1]
 
         parsed_data.append({
             "rank": rank,
             "name": machine_name,
-            "price": price_str if price_str else "0円",
+            "price": price_str,
             "price_num": price_val,
             "diff": diff_str,
             "diff_num": diff_val
