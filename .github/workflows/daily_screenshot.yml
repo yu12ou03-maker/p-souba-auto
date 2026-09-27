@@ -2,8 +2,9 @@ name: 毎朝スクショ自動撮影
 
 on:
   schedule:
-    - cron: '0 22 * * *'
-  workflow_dispatch:
+    # 毎朝日本時間9:00 (UTCの0:00) に実行
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行用
 
 jobs:
   take-screenshot:
@@ -22,15 +23,13 @@ jobs:
 
       - name: 必要なライブラリのインストール
         run: |
-          pip install playwright
+          pip install playwright beautifulsoup4
           playwright install --with-deps chromium
-          pip install google-generativeai
 
       - name: スクリーンショット撮影とレポート生成を実行
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python take_screenshot.py
 
@@ -38,9 +37,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add screenshots/ latest_report.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "中古機相場データ自動更新" && git push)
-
-      - name: Send to Google Drive
-        run: |
-          curl -L -X POST -H "Content-Type: text/plain" --data-binary "@latest_report.txt" "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
+          git add .
+          # 変更がある場合のみコミットとプッシュを行う
+          git diff --quiet && git diff --staged --quiet || (git commit -m "毎朝のスクショとレポート自動更新" && git push)
