@@ -7,11 +7,12 @@ from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 
 # ==========================================
-# 【注視機種の設定】   "大海物語5",
+# 【注視機種の設定】
 # ==========================================
 TARGET_PACHINKO = [
     "牙狼12",
-    # "東京喰種　超デカ超一撃",
+    # "大海物語5",
+    # "東京喰種 超デカ超一撃",
     # "ソードアートオンライン夜空",
 ]
 
@@ -79,30 +80,31 @@ def call_gemini_vision(api_key, image_path, category_name, target_keywords):
     }
     data_bytes = json.dumps(payload).encode("utf-8")
 
-    models = ["gemini-3.6-flash", "gemini-3.6-pro"]
+    models = ["gemini-2.5-flash", "gemini-1.5-flash"]
     
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
 
-        for attempt in range(1, 6):
+        for attempt in range(1, 4):
             try:
                 with urllib.request.urlopen(req, timeout=90) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
             except urllib.error.HTTPError as e:
-                if e.code == 503:
-                    wait_time = attempt * 10
-                    print(f"[{model}] サーバー混雑中... {wait_time}秒後に再試行します（{attempt}/5回目）")
-                    time.sleep(wait_time)
+                err_msg = e.read().decode("utf-8")
+                print(f"[{model}] HTTPエラー ({e.code}): {err_msg}")
+                if e.code in [503, 429]:
+                    time.sleep(attempt * 10)
                     continue
                 else:
                     break
-            except Exception:
-                time.sleep(10)
+            except Exception as e:
+                print(f"[{model}] 通信エラー: {e}")
+                time.sleep(5)
                 continue
                 
-    return f"■ {category_name}\n（AI解析エラー: サーバーの大混雑により抽出できませんでした。しばらく時間をおいてから再度お試しください。）"
+    return f"■ {category_name}\n（AI解析エラー: データの抽出に失敗しました。）"
 
 
 def run():
@@ -121,7 +123,6 @@ def run():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # 表が長くても下位機種まで写るように高さを2500pxに拡張
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 2500}
@@ -165,8 +166,8 @@ def run():
     print("Geminiによるパチンコ相場画像解析を実行中...")
     pachinko_report = call_gemini_vision(gemini_key, pachinko_img, "パチンコ", TARGET_PACHINKO)
     
-    print("API待機中（15秒）...")
-    time.sleep(15)
+    print("API待機中（10秒）...")
+    time.sleep(10)
     
     print("Geminiによるパチスロ相場画像解析を実行中...")
     pachislot_report = call_gemini_vision(gemini_key, pachislot_img, "パチスロ", TARGET_SLOT)
