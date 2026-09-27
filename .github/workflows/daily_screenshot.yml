@@ -43,4 +43,4 @@ jobs:
 
       - name: Send to Google Drive
         run: |
-          curl -L -X POST -H "Content-Type: text/plain" --data-binary "@latest_report.txt" "${{ secrets.GAS_URL }}"
+          curl -L -X POST -H "Content-Type: text/plain" --data-binary "@latest_report.txt" "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
