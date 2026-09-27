@@ -3,104 +3,109 @@ import re
 import urllib.request
 import time
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from playwright.sync_api import sync_playwright
 
 GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
 
 # ==========================================
-# 【注視機種の設定】（対象の機種名を指定）
+# 【注視機種の設定】
 # ==========================================
-TARGET_PACHINKO = [
-    "牙狼12",
-]
-TARGET_SLOT = [
-    "ソードアート",
-]
+TARGET_PACHINKO = ["牙狼12"]
+TARGET_SLOT = ["ソードアート"]
 # ==========================================
+
+def parse_number_and_sign(cell):
+    """指定されたセル内の文字と画像をすべて結合して数字を抽出する"""
+    result = ""
+    for elem in cell.descendants:
+        if isinstance(elem, NavigableString):
+            result += str(elem).strip()
+        elif elem.name == "img":
+            src = elem.get("src", "").lower()
+            alt = elem.get("alt", "").strip()
+            # alt属性に数字があれば優先
+            if alt and re.match(r'^[\d,\+\-]+$', alt):
+                result += alt
+            else:
+                # 画像ファイル名から数字（7.gifなど）を抽出
+                m = re.search(r'(\d)\.(?:gif|png|jpg)', src)
+                if m:
+                    result += m.group(1)
+                elif "minus" in src or "m." in src:
+                    result += "-"
+                elif "plus" in src or "p." in src:
+                    result += "+"
+    
+    # マイナス記号の判定
+    is_minus = "-" in result or "－" in result or "▼" in result
+    
+    # 数字だけを抽出
+    clean_num_str = re.sub(r'[^\d]', '', result)
+    num = int(clean_num_str) if clean_num_str else 0
+    
+    if is_minus:
+        num = -abs(num)
+    return num
 
 def extract_data(html_content, target_keywords):
     soup = BeautifulSoup(html_content, "html.parser")
-    
-    # 【最重要：サイト側の画像偽装を突破する処理】
-    for img in soup.find_all("img"):
-        src = img.get("src", "").lower()
-        alt = img.get("alt", "")
-        
-        if alt and re.match(r'^[\d,]$', alt):
-            img.replace_with(alt)
-            continue
-            
-        filename = src.split("/")[-1]
-        m = re.match(r'^.*?(\d)\.gif$', filename)
-        if m:
-            img.replace_with(m.group(1))
-        elif "c.gif" in filename or "comma" in filename:
-            img.replace_with(",")
-
     rows = soup.find_all("tr")
     parsed_data = []
+
+    # 基本の列番号（0:順位, 2:機種名, 5:平均価格, 6:前日差額）
+    name_idx, price_idx, diff_idx = 2, 5, 6
     
+    # 見出し行から「平均価格」の正確な列番号を動的に探す（ズレ防止）
+    for row in rows[:10]:
+        header_texts = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
+        if "平均価格" in header_texts:
+            if "機種名" in header_texts: name_idx = header_texts.index("機種名")
+            price_idx = header_texts.index("平均価格")
+            if "前日差額" in header_texts: diff_idx = header_texts.index("前日差額")
+            break
+
     for row in rows:
         cells = row.find_all(["td", "th"])
-        if len(cells) < 5:
+        # 列数が足りない行（ヘッダーの区切りなど）はスキップ
+        if len(cells) <= max(name_idx, price_idx, diff_idx):
             continue
             
-        cell_texts = [c.get_text(strip=True) for c in cells]
-        
-        rank_str = cell_texts[0]
-        rank_match = re.match(r'^(\d+)', rank_str)
-        if not rank_match:
+        # 1. 順位の確認
+        rank_text = cells[0].get_text(strip=True)
+        m_rank = re.match(r'^(\d+)', rank_text)
+        if not m_rank:
             continue
-        rank = rank_match.group(1)
+        rank = m_rank.group(1)
             
-        machine_name = cell_texts[2]
+        # 2. 機種名の取得
+        machine_name = cells[name_idx].get_text(strip=True)
         if not machine_name or machine_name == "機種名":
             continue
 
-        price_candidates = []
-        diff_str = "±0円"
-        diff_val = 0
-        
-        for i in range(3, len(cell_texts)):
-            raw_text = cell_texts[i]
-            
-            if any(sign in raw_text for sign in ["+", "-", "＋", "－", "±"]):
-                diff_str = raw_text
-                if not diff_str.endswith("円"):
-                    diff_str += "円"
-                num_part = re.sub(r'[^\d+-]', '', diff_str.replace("＋", "+").replace("－", "-"))
-                try: diff_val = int(num_part)
-                except: diff_val = 0
-            
-            else:
-                if "/" in raw_text or "導入" in raw_text:
-                    continue
-                m = re.search(r'[\d,]+', raw_text)
-                if m:
-                    extracted = m.group(0)
-                    clean_num = extracted.replace(",", "")
-                    if clean_num.isdigit():
-                        price_candidates.append((extracted, int(clean_num)))
+        # 3. 平均価格の取得（指定した列だけを画像含めてピンポイントで解析）
+        price_num = parse_number_and_sign(cells[price_idx])
+        price_str = f"{price_num:,}円" if price_num > 0 else "0円"
 
-        price_str = "0円"
-        price_val = 0
-        if price_candidates:
-            best_price = max(price_candidates, key=lambda x: x[1])
-            price_str = best_price[0]
-            if not price_str.endswith("円"):
-                price_str += "円"
-            price_val = best_price[1]
+        # 4. 前日差額の取得（指定した列だけを解析）
+        diff_num = parse_number_and_sign(cells[diff_idx])
+        if diff_num > 0:
+            diff_str = f"+{diff_num:,}円"
+        elif diff_num < 0:
+            diff_str = f"{diff_num:,}円"
+        else:
+            diff_str = "±0円"
 
         parsed_data.append({
             "rank": rank,
             "name": machine_name,
             "price": price_str,
-            "price_num": price_val,
+            "price_num": price_num,
             "diff": diff_str,
-            "diff_num": diff_val
+            "diff_num": diff_num
         })
 
+    # --- レポート生成 ---
     report_lines = []
     
     report_lines.append("【相場 上位3位】")
