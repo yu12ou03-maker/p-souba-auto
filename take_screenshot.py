@@ -1,10 +1,10 @@
 import os
-import re
-import urllib.request
 import time
+import urllib.request
+import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup, NavigableString
 from playwright.sync_api import sync_playwright
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
 
@@ -15,140 +15,70 @@ TARGET_PACHINKO = ["牙狼12"]
 TARGET_SLOT = ["ソードアート"]
 # ==========================================
 
-def parse_number_and_sign(cell):
-    """指定されたセル内の文字と画像をすべて結合して数字を抽出する"""
-    result = ""
-    for elem in cell.descendants:
-        if isinstance(elem, NavigableString):
-            result += str(elem).strip()
-        elif elem.name == "img":
-            src = elem.get("src", "").lower()
-            alt = elem.get("alt", "").strip()
-            # alt属性に数字があれば優先
-            if alt and re.match(r'^[\d,\+\-]+$', alt):
-                result += alt
-            else:
-                # 画像ファイル名から数字（7.gifなど）を抽出
-                m = re.search(r'(\d)\.(?:gif|png|jpg)', src)
-                if m:
-                    result += m.group(1)
-                elif "minus" in src or "m." in src:
-                    result += "-"
-                elif "plus" in src or "p." in src:
-                    result += "+"
+def setup_gemini(api_key):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel('gemini-1.5-flash-latest')
+
+def analyze_image_with_gemini(model, image_path, category_name, target_keywords):
+    print(f"{category_name}の画像をAIで解析中...")
     
-    # マイナス記号の判定
-    is_minus = "-" in result or "－" in result or "▼" in result
-    
-    # 数字だけを抽出
-    clean_num_str = re.sub(r'[^\d]', '', result)
-    num = int(clean_num_str) if clean_num_str else 0
-    
-    if is_minus:
-        num = -abs(num)
-    return num
+    from PIL import Image
+    try:
+        img = Image.open(image_path)
+    except Exception as e:
+        return f"■ {category_name}相場\n（画像読み込みエラー: {e}）"
 
-def extract_data(html_content, target_keywords):
-    soup = BeautifulSoup(html_content, "html.parser")
-    rows = soup.find_all("tr")
-    parsed_data = []
+    keywords_str = "、".join(target_keywords)
 
-    # 基本の列番号（0:順位, 2:機種名, 5:平均価格, 6:前日差額）
-    name_idx, price_idx, diff_idx = 2, 5, 6
-    
-    # 見出し行から「平均価格」の正確な列番号を動的に探す（ズレ防止）
-    for row in rows[:10]:
-        header_texts = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
-        if "平均価格" in header_texts:
-            if "機種名" in header_texts: name_idx = header_texts.index("機種名")
-            price_idx = header_texts.index("平均価格")
-            if "前日差額" in header_texts: diff_idx = header_texts.index("前日差額")
-            break
+    prompt = f"""
+あなたは中古機相場表の画像解析エキスパートです。
+添付された表の画像から、正確な「機種名」「平均価格」「前日差額」を読み取ってください。
 
-    for row in rows:
-        cells = row.find_all(["td", "th"])
-        # 列数が足りない行（ヘッダーの区切りなど）はスキップ
-        if len(cells) <= max(name_idx, price_idx, diff_idx):
-            continue
-            
-        # 1. 順位の確認
-        rank_text = cells[0].get_text(strip=True)
-        m_rank = re.match(r'^(\d+)', rank_text)
-        if not m_rank:
-            continue
-        rank = m_rank.group(1)
-            
-        # 2. 機種名の取得
-        machine_name = cells[name_idx].get_text(strip=True)
-        if not machine_name or machine_name == "機種名":
-            continue
+【抽出ルール】
+1. 相場 上位3位（ランキング1位〜3位）
+2. 注視機種（対象: {keywords_str}）※見つからなければ「見つかりませんでした」
+3. 前日比 急上昇TOP3（プラスの中で額が大きい順）
+4. 前日比 急降下TOP3（マイナスの中で額が大きい順）
 
-        # 3. 平均価格の取得（指定した列だけを画像含めてピンポイントで解析）
-        price_num = parse_number_and_sign(cells[price_idx])
-        price_str = f"{price_num:,}円" if price_num > 0 else "0円"
+【出力フォーマット】
+【相場 上位3位】
+ 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
 
-        # 4. 前日差額の取得（指定した列だけを解析）
-        diff_num = parse_number_and_sign(cells[diff_idx])
-        if diff_num > 0:
-            diff_str = f"+{diff_num:,}円"
-        elif diff_num < 0:
-            diff_str = f"{diff_num:,}円"
-        else:
-            diff_str = "±0円"
+【注視機種相場】
+ ・[機種名]：[平均価格]（前日比 [変動記号と額]）
 
-        parsed_data.append({
-            "rank": rank,
-            "name": machine_name,
-            "price": price_str,
-            "price_num": price_num,
-            "diff": diff_str,
-            "diff_num": diff_num
-        })
+【前日比 急上昇TOP3】
+ 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
 
-    # --- レポート生成 ---
-    report_lines = []
-    
-    report_lines.append("【相場 上位3位】")
-    for i in range(min(3, len(parsed_data))):
-        d = parsed_data[i]
-        report_lines.append(f" {d['rank']}位 {d['name']}：{d['price']}（前日比 {d['diff']}）")
-    if not parsed_data:
-        report_lines.append(" （データが見つかりませんでした）")
+【前日比 急降下TOP3】
+ 1位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 2位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+ 3位 [機種名]：[平均価格]（前日比 [変動記号と額]）
+"""
 
-    report_lines.append("\n【注視機種相場】")
-    for keyword in target_keywords:
-        found = False
-        for d in parsed_data:
-            if keyword in d["name"]:
-                report_lines.append(f" ・{d['name']}：{d['price']}（前日比 {d['diff']}）")
-                found = True
-                break
-        if not found:
-            report_lines.append(f" ・{keyword}：（ランキング内に見つかりませんでした）")
+    # AIのセーフティフィルターを全解除（ギャンブル関連ワードでのエラー落ちを防ぐ）
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
 
-    report_lines.append("\n【前日比 急上昇TOP3】")
-    up_data = [d for d in parsed_data if d["diff_num"] > 0]
-    up_data.sort(key=lambda x: x["diff_num"], reverse=True)
-    for i in range(min(3, len(up_data))):
-        d = up_data[i]
-        report_lines.append(f" {i+1}位 {d['name']}：{d['price']}（前日比 🔴 +{d['diff_num']:,}円）")
-    if not up_data:
-        report_lines.append(" （値上がり機種なし）")
+    try:
+        response = model.generate_content(
+            [prompt, img],
+            safety_settings=safety_settings,
+            generation_config={"temperature": 0.0}
+        )
+        return f"■ {category_name}相場\n" + response.text.strip()
+    except Exception as e:
+        print(f"Gemini APIエラー: {e}")
+        return f"■ {category_name}相場\n（AI解析エラーが発生しました。詳細: {e}）"
 
-    report_lines.append("\n【前日比 急降下TOP3】")
-    down_data = [d for d in parsed_data if d["diff_num"] < 0]
-    down_data.sort(key=lambda x: x["diff_num"])
-    for i in range(min(3, len(down_data))):
-        d = down_data[i]
-        report_lines.append(f" {i+1}位 {d['name']}：{d['price']}（前日比 🔵 {d['diff_num']:,}円）")
-    if not down_data:
-        report_lines.append(" （値下がり機種なし）")
-
-    report_lines.append("\n\n--- 以下、全取得データ ---")
-    for d in parsed_data:
-        report_lines.append(f"{d['rank']}位\t{d['name']}\t{d['price']}\t{d['diff']}")
-
-    return "\n".join(report_lines)
 
 def send_to_drive(report_text):
     req = urllib.request.Request(
@@ -162,17 +92,44 @@ def send_to_drive(report_text):
     except Exception as e:
         print("ドライブ送信エラー:", e)
 
+def capture_table(page, url, output_path):
+    """ページ全体ではなく、ランキング表の部分だけを自動で切り抜いて撮影する"""
+    page.goto(url)
+    time.sleep(4)
+    
+    target_locator = None
+    if page.locator('table', has_text='平均価格').count() > 0:
+        target_locator = page.locator('table', has_text='平均価格').first
+    else:
+        for f in page.frames:
+            if f.locator('table', has_text='平均価格').count() > 0:
+                target_locator = f.locator('table', has_text='平均価格').first
+                break
+                
+    if target_locator:
+        # 表の部分だけを超高画質で切り抜き撮影
+        target_locator.screenshot(path=output_path)
+    else:
+        # 万が一見つからなければ全体撮影
+        page.screenshot(path=output_path, full_page=True)
+
+
 def run():
     username = os.environ.get("P_SOUBA_USER")
     password = os.environ.get("P_SOUBA_PASS")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
 
-    if not username or not password:
-        raise ValueError("中古機相場のログイン情報が設定されていません。")
+    if not username or not password or not gemini_key:
+        raise ValueError("環境変数が設定されていません。")
+
+    os.makedirs("screenshots", exist_ok=True)
+    model = setup_gemini(gemini_key)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+            viewport={"width": 1920, "height": 1080}
         )
         page = context.new_page()
 
@@ -192,27 +149,26 @@ def run():
             pass_input.press("Enter")
         time.sleep(3)
 
-        print("パチンコ相場データを取得中...")
-        page.goto("http://www.p-souba.com/krank_1.htm")
-        time.sleep(3)
-        pachinko_html = "\n".join([f.content() for f in page.frames]) if page.frames else page.content()
-        pachinko_report = extract_data(pachinko_html, TARGET_PACHINKO)
+        print("パチンコ相場を撮影中...")
+        capture_table(page, "http://www.p-souba.com/krank_1.htm", "screenshots/pachinko.png")
 
-        print("パチスロ相場データを取得中...")
-        page.goto("http://www.p-souba.com/krank_2.htm")
-        time.sleep(3)
-        pachislot_html = "\n".join([f.content() for f in page.frames]) if page.frames else page.content()
-        pachislot_report = extract_data(pachislot_html, TARGET_SLOT)
+        print("パチスロ相場を撮影中...")
+        capture_table(page, "http://www.p-souba.com/krank_2.htm", "screenshots/slot.png")
 
         browser.close()
 
+    # 撮影した表の画像をAIに渡してテキスト化
+    pachinko_report = analyze_image_with_gemini(model, "screenshots/pachinko.png", "パチンコ", TARGET_PACHINKO)
+    time.sleep(3)
+    slot_report = analyze_image_with_gemini(model, "screenshots/slot.png", "パチスロ", TARGET_SLOT)
+
     jst = timezone(timedelta(hours=+9), 'JST')
     now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
-    full_report = f"【{now_str}】\n\n■ パチンコ相場\n{pachinko_report}\n\n========================\n\n■ パチスロ相場\n{pachislot_report}\n"
+    full_report = f"【{now_str}】\n\n{pachinko_report}\n\n========================\n\n{slot_report}\n"
 
     print("レポートをGoogleドライブへ送信中...")
     send_to_drive(full_report)
-    print("全処理が完了しました。")
+    print("完了しました。")
 
 if __name__ == "__main__":
     run()
