@@ -17,8 +17,8 @@ TARGET_SLOT = ["ソードアート"]
 
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
-    # 【修正箇所】末尾の「-latest」を削除し、正しいモデル名に修正しました
-    return genai.GenerativeModel('gemini-1.5-flash')
+    # 【最重要修正】廃止された「1.5」ではなく、現在稼働している最新モデル「gemini-2.5-flash」を指定します
+    return genai.GenerativeModel('gemini-2.5-flash')
 
 def analyze_image_with_gemini(model, image_path, category_name, target_keywords):
     print(f"{category_name}の画像をAIで解析中...")
