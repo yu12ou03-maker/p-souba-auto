@@ -40,7 +40,7 @@ def run():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 2500}
+            viewport={"width": 1280, "height": 10000}
         )
         page = context.new_page()
         page.set_default_timeout(60000)
