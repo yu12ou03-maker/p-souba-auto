@@ -28,7 +28,6 @@ def extract_data(html_content, target_keywords):
     
     for row in rows:
         cells = row.find_all(["td", "th"])
-        # 最低限の列数がない行はスキップ
         if len(cells) < 5:
             continue
             
@@ -51,7 +50,7 @@ def extract_data(html_content, target_keywords):
         diff_str = "±0円"
         diff_val = 0
         
-        # 4列目以降から、価格（数字のみ）と前日比（＋－記号あり）を探す
+        # 4列目以降から価格と前日比を探す
         for i in range(3, len(cell_texts)):
             raw_text = cell_texts[i]
             
@@ -64,15 +63,24 @@ def extract_data(html_content, target_keywords):
                 try: diff_val = int(num_part)
                 except: diff_val = 0
             
-            # 記号がなく、カンマや円を除いて数字だけになるなら平均価格（最初に見つけた数字）
+            # 記号がないものは平均価格の候補
             else:
-                clean_txt = raw_text.replace("円", "").replace(",", "").strip()
-                if clean_txt.isdigit() and not price_str:
-                    price_str = raw_text
-                    if not price_str.endswith("円"):
-                        price_str += "円"
-                    try: price_val = int(clean_txt)
-                    except: price_val = 0
+                # 導入日などの日付（/入り）は無視
+                if "/" in raw_text or "導入" in raw_text:
+                    continue
+                    
+                # 文字列の中から数字とカンマの連続を強制的に抽出
+                m = re.search(r'[\d,]+', raw_text)
+                if m and not price_str:
+                    extracted = m.group(0)
+                    clean_num = extracted.replace(",", "")
+                    # 3桁以上の数字が見つかれば価格として採用する
+                    if len(clean_num) >= 3 or (clean_num.isdigit() and int(clean_num) >= 0):
+                        price_str = extracted
+                        if not price_str.endswith("円"):
+                            price_str += "円"
+                        try: price_val = int(clean_num)
+                        except: price_val = 0
 
         parsed_data.append({
             "rank": rank,
