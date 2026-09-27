@@ -67,14 +67,14 @@ def run():
         print("パチンコ相場を撮影中...")
         page.goto("http://www.p-souba.com/krank_1.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        page.screenshot(path=pachinko_img, full_page=False)
+        page.screenshot(path=pachinko_img, full_page=True)
         send_to_drive(pachinko_img, "pachinko_ranking.png")
 
         # 3. パチスロ相場撮影 & ドライブ送信
         print("パチスロ相場を撮影中...")
         page.goto("http://www.p-souba.com/krank_2.htm", wait_until="domcontentloaded")
         time.sleep(3)
-        page.screenshot(path=pachislot_img, full_page=False)
+        page.screenshot(path=pachislot_img, full_page=True)
         send_to_drive(pachislot_img, "pachislot_ranking.png")
 
         browser.close()
