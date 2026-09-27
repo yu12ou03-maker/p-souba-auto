@@ -1,4 +1,4 @@
-name: 毎朝スクショ自動撮影
+name: 毎朝相場データ自動取得
 
 on:
   schedule:
@@ -25,7 +25,7 @@ jobs:
           pip install playwright google-generativeai pillow
           playwright install --with-deps chromium
 
-      - name: スクリーンショット撮影とレポート生成を実行
+      - name: スクリーンショット撮影とAI解析を実行
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
@@ -38,4 +38,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git diff --quiet && git diff --staged --quiet || (git commit -m "毎朝のスクショとレポート自動更新" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "毎朝の相場データ自動更新" && git push)
