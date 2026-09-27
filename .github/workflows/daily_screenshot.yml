@@ -22,14 +22,13 @@ jobs:
 
       - name: 必要なライブラリのインストール
         run: |
-          pip install playwright google-generativeai pillow
+          pip install playwright beautifulsoup4
           playwright install --with-deps chromium
 
       - name: スクリーンショット撮影とレポート生成を実行
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python take_screenshot.py
 
