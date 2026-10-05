@@ -2,145 +2,449 @@ import os
 import time
 import urllib.request
 import google.generativeai as genai
+
 from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbyKABP8o_wSJep2-Mz7QhWsq_ZxmNbNBIWluJBRw9BcrhYi0gc6LNE7Tv7JxPzuX3Jp/exec"
+
+# ==========================================
+# 設定
+# ==========================================
+
+# ★ここには現在使用しているGAS_URLをそのまま入れてください
+GAS_URL = "https://script.google.com/macros/s/～/exec"
+
+
+# ==========================================
+# Gemini設定
+# ==========================================
 
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
-    # お客様ご契約の3.6を指定
-    return genai.GenerativeModel('gemini-3.6-flash')
 
-def analyze_image_with_gemini(model, image_path, category_name):
-    print(f"{category_name}の画像をAIで解析中...")
-    
+    return genai.GenerativeModel(
+        "gemini-3.6-flash"
+    )
+
+
+# ==========================================
+# パチンコ＋パチスロを1回で解析
+# ==========================================
+
+def analyze_both_images_with_gemini(
+    model,
+    pachinko_path,
+    slot_path
+):
+    print(
+        "パチンコ・パチスロの画像を"
+        "まとめてAIで解析中..."
+    )
+
     from PIL import Image
+
     try:
-        img = Image.open(image_path)
+        pachinko_img = Image.open(pachinko_path)
+        slot_img = Image.open(slot_path)
+
     except Exception as e:
-        return f"■ {category_name}相場\n（画像読み込みエラー: {e}）"
+        print("画像読み込みエラー:", e)
 
-    # AIへの指示：特定の機種を探すのではなく、全部をそのまま書き出させる
-    prompt = f"""
-あなたはデータ入力の専門家です。
-添付された中古機相場の表画像に写っている【すべての機種データ】を、一切省略せずに1位から順番に全て書き出してください。
-途中で「...」などで省略することは絶対に許可しません。写っている全件を出力してください。
+        return (
+            "AI解析エラー\n"
+            f"画像読み込みに失敗しました: {e}"
+        )
 
-【出力フォーマット】
-（以下のタブ区切り形式で出力してください）
-[順位]位\t[機種名]\t[平均価格]\t[前日差額]
+    prompt = """
+あなたはパチンコ・パチスロ中古機相場データの専門家です。
+
+添付画像は2枚あります。
+
+1枚目：
+パチンコ中古機相場
+
+2枚目：
+パチスロ中古機相場
+
+それぞれの画像に写っている
+「すべての機種データ」を読み取ってください。
+
+1位から順番に、
+画像に写っている最後の順位まで
+一切省略せず出力してください。
+
+途中を「...」などで
+省略することは禁止です。
+
+数字を推測しないでください。
+画像で確認できない文字や数字は
+「判読不能」と記載してください。
+
+パチンコとパチスロを
+必ず分けて出力してください。
+
+【出力形式】
+
+■ パチンコ相場 (全取得データ)
+
+[順位] [機種名] [平均価格] [前日差額]
+
+
+========================
+
+
+■ パチスロ相場 (全取得データ)
+
+[順位] [機種名] [平均価格] [前日差額]
+
 """
 
     safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HARASSMENT:
+            HarmBlockThreshold.BLOCK_NONE,
+
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH:
+            HarmBlockThreshold.BLOCK_NONE,
+
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT:
+            HarmBlockThreshold.BLOCK_NONE,
+
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT:
+            HarmBlockThreshold.BLOCK_NONE,
     }
 
     try:
         response = model.generate_content(
-            [prompt, img],
+            [
+                prompt,
+                pachinko_img,
+                slot_img
+            ],
             safety_settings=safety_settings,
-            generation_config={"temperature": 0.0}
+            generation_config={
+                "temperature": 0.0
+            }
         )
-        return f"■ {category_name}相場 (全取得データ)\n" + response.text.strip()
+
+        return response.text.strip()
+
     except Exception as e:
-        print(f"Gemini APIエラー: {e}")
-        return f"■ {category_name}相場\n（AI解析エラーが発生しました。詳細: {e}）"
+        print(
+            "Gemini APIエラー:",
+            e
+        )
+
+        return (
+            "AI解析エラーが発生しました。\n"
+            f"詳細: {e}"
+        )
+
+
+# ==========================================
+# Google Driveへ送信
+# ==========================================
 
 def send_to_drive(report_text):
+
     req = urllib.request.Request(
         GAS_URL,
         data=report_text.encode("utf-8"),
-        headers={"Content-Type": "text/plain; charset=utf-8"}
+        headers={
+            "Content-Type":
+                "text/plain; charset=utf-8"
+        }
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            print("Googleドライブ送信完了:", resp.read().decode("utf-8"))
-    except Exception as e:
-        print("ドライブ送信エラー:", e)
 
-def capture_table(page, url, output_path):
-    page.goto(url)
+    try:
+        with urllib.request.urlopen(
+            req,
+            timeout=60
+        ) as resp:
+
+            result = (
+                resp
+                .read()
+                .decode("utf-8")
+            )
+
+            print(
+                "Googleドライブ送信完了:",
+                result
+            )
+
+            if not result.startswith("OK"):
+                raise RuntimeError(
+                    "Google Drive側で"
+                    "エラーが発生しました: "
+                    + result
+                )
+
+    except Exception as e:
+        print(
+            "ドライブ送信エラー:",
+            e
+        )
+
+        raise
+
+
+# ==========================================
+# 相場表スクリーンショット
+# ==========================================
+
+def capture_table(
+    page,
+    url,
+    output_path
+):
+
+    page.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
     time.sleep(4)
-    
+
     target_locator = None
-    if page.locator('table', has_text='平均価格').count() > 0:
-        target_locator = page.locator('table', has_text='平均価格').first
+
+    # 通常ページ内を確認
+    if page.locator(
+        'table',
+        has_text="平均価格"
+    ).count() > 0:
+
+        target_locator = page.locator(
+            'table',
+            has_text="平均価格"
+        ).first
+
     else:
-        for f in page.frames:
-            if f.locator('table', has_text='平均価格').count() > 0:
-                target_locator = f.locator('table', has_text='平均価格').first
+
+        # iframe内も確認
+        for frame in page.frames:
+
+            if frame.locator(
+                'table',
+                has_text="平均価格"
+            ).count() > 0:
+
+                target_locator = frame.locator(
+                    'table',
+                    has_text="平均価格"
+                ).first
+
                 break
-                
+
     if target_locator:
-        target_locator.screenshot(path=output_path)
+
+        target_locator.screenshot(
+            path=output_path
+        )
+
     else:
-        page.screenshot(path=output_path, full_page=True)
+
+        print(
+            "相場テーブルを直接検出できなかったため"
+            "ページ全体を撮影します。"
+        )
+
+        page.screenshot(
+            path=output_path,
+            full_page=True
+        )
+
+
+# ==========================================
+# メイン処理
+# ==========================================
 
 def run():
-    username = os.environ.get("P_SOUBA_USER")
-    password = os.environ.get("P_SOUBA_PASS")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
 
-    if not username or not password or not gemini_key:
-        raise ValueError("環境変数が設定されていません。")
+    username = os.environ.get(
+        "P_SOUBA_USER"
+    )
 
-    os.makedirs("screenshots", exist_ok=True)
-    model = setup_gemini(gemini_key)
+    password = os.environ.get(
+        "P_SOUBA_PASS"
+    )
+
+    gemini_key = os.environ.get(
+        "GEMINI_API_KEY"
+    )
+
+    if (
+        not username
+        or not password
+        or not gemini_key
+    ):
+
+        raise ValueError(
+            "必要な環境変数が"
+            "設定されていません。"
+        )
+
+    os.makedirs(
+        "screenshots",
+        exist_ok=True
+    )
+
+    model = setup_gemini(
+        gemini_key
+    )
+
+    # ======================================
+    # 中古機相場.comへログイン
+    # ======================================
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
-            viewport={"width": 1920, "height": 1080}
+
+        browser = p.chromium.launch(
+            headless=True
         )
+
+        context = browser.new_context(
+
+            user_agent=(
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "Chrome/120.0.0.0"
+            ),
+
+            viewport={
+                "width": 1920,
+                "height": 1080
+            }
+        )
+
         page = context.new_page()
 
         print("ログイン中...")
-        page.goto("http://www.p-souba.com/index.php")
+
+        page.goto(
+            "http://www.p-souba.com/index.php",
+            wait_until="domcontentloaded",
+            timeout=60000
+        )
+
         time.sleep(3)
-        pass_input = page.locator('input[type="password"]').first
-        form = pass_input.locator("xpath=./ancestor::form")
-        form.locator('input[type="text"]').first.fill(username)
-        pass_input.fill(password)
+
+        pass_input = page.locator(
+            'input[type="password"]'
+        ).first
+
+        form = pass_input.locator(
+            "xpath=./ancestor::form"
+        )
+
+        form.locator(
+            'input[type="text"]'
+        ).first.fill(
+            username
+        )
+
+        pass_input.fill(
+            password
+        )
+
         time.sleep(1)
-        
-        submit_btn = form.locator('input[type="submit"], input[type="image"], button')
+
+        submit_btn = form.locator(
+            'input[type="submit"], '
+            'input[type="image"], '
+            'button'
+        )
+
         if submit_btn.count() > 0:
+
             submit_btn.first.click()
+
         else:
-            pass_input.press("Enter")
+
+            pass_input.press(
+                "Enter"
+            )
+
         time.sleep(3)
 
-        print("パチンコ相場を撮影中...")
-        capture_table(page, "http://www.p-souba.com/krank_1.htm", "screenshots/pachinko.png")
+        # ==================================
+        # パチンコ撮影
+        # ==================================
 
-        print("パチスロ相場を撮影中...")
-        capture_table(page, "http://www.p-souba.com/krank_2.htm", "screenshots/slot.png")
+        print(
+            "パチンコ相場を撮影中..."
+        )
+
+        capture_table(
+            page,
+            "http://www.p-souba.com/crank_1.htm",
+            "screenshots/pachinko.png"
+        )
+
+        # ==================================
+        # パチスロ撮影
+        # ==================================
+
+        print(
+            "パチスロ相場を撮影中..."
+        )
+
+        capture_table(
+            page,
+            "http://www.p-souba.com/crank_2.htm",
+            "screenshots/slot.png"
+        )
 
         browser.close()
 
-    # パチンコ解析
-    pachinko_report = analyze_image_with_gemini(model, "screenshots/pachinko.png", "パチンコ")
-    
-    # APIの連続呼び出し制限（429エラー）を回避するため30秒待機
-    print("API制限回避のため30秒待機中...")
-    time.sleep(30)
-    
-    # パチスロ解析
-    slot_report = analyze_image_with_gemini(model, "screenshots/slot.png", "パチスロ")
+    # ======================================
+    # Gemini解析
+    # ★API呼び出しはここで1回だけ
+    # ======================================
 
-    jst = timezone(timedelta(hours=+9), 'JST')
-    now_str = datetime.now(jst).strftime('%Y/%m/%d %H:%M 更新')
-    full_report = f"【{now_str}】\n\n{pachinko_report}\n\n========================\n\n{slot_report}\n"
+    report = analyze_both_images_with_gemini(
+        model,
+        "screenshots/pachinko.png",
+        "screenshots/slot.png"
+    )
 
-    print("レポートをGoogleドライブへ送信中...")
-    send_to_drive(full_report)
-    print("完了しました。")
+    # ======================================
+    # 日時追加
+    # ======================================
+
+    jst = timezone(
+        timedelta(hours=9),
+        "JST"
+    )
+
+    now_str = datetime.now(
+        jst
+    ).strftime(
+        "%Y/%m/%d %H:%M 更新"
+    )
+
+    full_report = (
+        f"【{now_str}】\n\n"
+        f"{report}\n"
+    )
+
+    # ======================================
+    # Google Driveへ送信
+    # ======================================
+
+    print(
+        "レポートをGoogleドライブへ送信中..."
+    )
+
+    send_to_drive(
+        full_report
+    )
+
+    print(
+        "完了しました。"
+    )
+
 
 if __name__ == "__main__":
     run()
