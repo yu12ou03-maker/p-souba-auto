@@ -333,7 +333,7 @@ def run():
 
         capture_table(
             page,
-            "http://www.p-souba.com/crank_1.htm",
+            "http://www.p-souba.com/rank.htm",
             "screenshots/pachinko.png"
         )
 
@@ -347,7 +347,7 @@ def run():
 
         capture_table(
             page,
-            "http://www.p-souba.com/crank_2.htm",
+            "http://www.p-souba.com/rank2.htm",
             "screenshots/slot.png"
         )
 
