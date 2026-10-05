@@ -333,7 +333,7 @@ def run():
 
         capture_table(
             page,
-            "http://www.p-souba.com/rank.htm",
+            "http://www.p-souba.com/crank_1.htm",
             "screenshots/pachinko.png"
         )
 
@@ -347,7 +347,7 @@ def run():
 
         capture_table(
             page,
-            "http://www.p-souba.com/rank2.htm",
+            "http://www.p-souba.com/crank_2.htm",
             "screenshots/slot.png"
         )
 
@@ -360,8 +360,8 @@ def run():
 
     report = analyze_both_images_with_gemini(
         model,
-        "screenshots/pachinko.png",
-        "screenshots/slot.png"
+        "screenshots/pachinko_ranking.png",
+        "screenshots/pachislot_ranking.png"
     )
 
     # ======================================
