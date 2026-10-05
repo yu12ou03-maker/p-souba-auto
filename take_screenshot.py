@@ -13,7 +13,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 # ==========================================
 
 # ★ここには現在使用しているGAS_URLをそのまま入れてください
-GAS_URL = "https://script.google.com/macros/s/～/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
 
 
 # ==========================================
