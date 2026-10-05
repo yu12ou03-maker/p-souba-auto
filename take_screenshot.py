@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbw0wiiyJpbwjVX0I1UcwXd_I55xvlCRnkNdmKagIrVApi1V-ygCbvossbYpajmqNXkX/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbyKABP8o_wSJep2-Mz7QhWsq_ZxmNbNBIWluJBRw9BcrhYi0gc6LNE7Tv7JxPzuX3Jp/exec"
 
 def setup_gemini(api_key):
     genai.configure(api_key=api_key)
