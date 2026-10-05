@@ -193,68 +193,23 @@ def send_to_drive(report_text):
 # 相場表スクリーンショット
 # ==========================================
 
-def capture_table(
-    page,
-    url,
-    output_path
-):
+def capture_table(page, url, output_path):
 
     page.goto(
         url,
-        wait_until="domcontentloaded",
+        wait_until="networkidle",
         timeout=60000
     )
 
-    time.sleep(4)
+    # 表が完全に表示されるまで待つ
+    time.sleep(5)
 
-    target_locator = None
+    print("相場ページ全体を撮影します...")
 
-    # 通常ページ内を確認
-    if page.locator(
-        'table',
-        has_text="平均価格"
-    ).count() > 0:
-
-        target_locator = page.locator(
-            'table',
-            has_text="平均価格"
-        ).first
-
-    else:
-
-        # iframe内も確認
-        for frame in page.frames:
-
-            if frame.locator(
-                'table',
-                has_text="平均価格"
-            ).count() > 0:
-
-                target_locator = frame.locator(
-                    'table',
-                    has_text="平均価格"
-                ).first
-
-                break
-
-    if target_locator:
-
-        target_locator.screenshot(
-            path=output_path
-        )
-
-    else:
-
-        print(
-            "相場テーブルを直接検出できなかったため"
-            "ページ全体を撮影します。"
-        )
-
-        page.screenshot(
-            path=output_path,
-            full_page=True
-        )
-
+    page.screenshot(
+        path=output_path,
+        full_page=True
+    )
 
 # ==========================================
 # メイン処理
