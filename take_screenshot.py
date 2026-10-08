@@ -109,7 +109,9 @@ def analyze_both_images_with_gemini(
             HarmBlockThreshold.BLOCK_NONE,
     }
 
-    try:
+        try:
+        print("Gemini APIへの送信を開始します（アプリ側の呼び出し：1回）", flush=True)
+
         response = model.generate_content(
             [
                 prompt,
@@ -119,22 +121,28 @@ def analyze_both_images_with_gemini(
             safety_settings=safety_settings,
             generation_config={
                 "temperature": 0.0
+            },
+            request_options={
+                "retry": None,
+                "timeout": 120
             }
         )
 
-        return response.text.strip()
+        report_text = response.text.strip()
+        if not report_text:
+            raise RuntimeError("Geminiの応答が空です")
+
+        print("Gemini APIの解析が完了しました", flush=True)
+        return report_text
 
     except Exception as e:
         print(
-            "Gemini APIエラー:",
-            e
+            f"Gemini API解析失敗: {type(e).__name__}: {e}",
+            flush=True
         )
-
-        return (
-            "AI解析エラーが発生しました。\n"
-            f"詳細: {e}"
-        )
-
+        raise RuntimeError(
+            "Gemini API解析失敗。Google Driveへの保存を中止します"
+        ) from e
 
 # ==========================================
 # Google Driveへ送信
