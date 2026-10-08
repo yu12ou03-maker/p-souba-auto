@@ -363,7 +363,15 @@ def run():
         "screenshots/pachinko_ranking.png",
         "screenshots/pachislot_ranking.png"
     )
-
+    if (
+        not report
+        or "AI解析エラー" in report
+        or "Deadline expired" in report
+        or "504" in report
+    ):
+        raise RuntimeError(
+            "AI解析に失敗したため、Google Driveへの保存を中止しました"
+        )
     # ======================================
     # 日時追加
     # ======================================
