@@ -15,7 +15,7 @@ def summarize(page):
     tables = page.evaluate('''() => Array.from(document.querySelectorAll('table')).map(table =>
       Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table).map(tr =>
         Array.from(tr.children).filter(c => ['TD','TH'].includes(c.tagName)).map(c =>
-          ({text: c.innerText.trim(), images: c.querySelectorAll('img').length, span: c.colSpan}))))''')
+          ({text: c.innerText.trim(), images: c.querySelectorAll('img').length, glyphs: Array.from(c.querySelectorAll('img')).map(img => ({file: new URL(img.src).pathname.split('/').pop(), alt: img.alt})), span: c.colSpan}))))''')
     results = []
     for rows in tables:
         for i, row in enumerate(rows):
@@ -23,7 +23,7 @@ def summarize(page):
             if not all(key in headings for key in ('順位', '機種名', '平均価格', '前日差額')):
                 continue
             indexes = {key: headings.index(key) for key in ('順位', '機種名', '平均価格', '前日差額')}
-            result = {'rows': 0, 'readable_price_rows': 0, 'numeric_image_cells': 0, 'merged_rows': 0, 'zero_change_rows': 0}
+            result = {'rows': 0, 'readable_price_rows': 0, 'numeric_image_cells': 0, 'merged_rows': 0, 'zero_change_rows': 0, 'glyphs': {}}
             for data in rows[i + 1:]:
                 if not data or not re.fullmatch(r'\d+位', unicodedata.normalize('NFKC', data[0]['text'])):
                     continue
@@ -34,6 +34,11 @@ def summarize(page):
                 price = data[indexes['平均価格']]
                 change = data[indexes['前日差額']]
                 result['numeric_image_cells'] += price['images'] + change['images']
+                for glyph in price['glyphs'] + change['glyphs']:
+                    filename = glyph['file']
+                    if re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', filename):
+                        alt = glyph['alt']
+                        result['glyphs'][filename] = alt if re.fullmatch(r'[0-9,+−±.-]{0,12}', alt) else '<non-numeric>'
                 p = unicodedata.normalize('NFKC', price['text']).replace(' ', '')
                 d = unicodedata.normalize('NFKC', change['text']).replace(' ', '').replace('−', '-')
                 if re.fullmatch(r'[\d,]+円', p) and re.fullmatch(r'(?:[+-][\d,]+|±?0)円', d):
