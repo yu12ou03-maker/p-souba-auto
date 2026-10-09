@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import google.generativeai as genai
-from PIL import Image, ImageStat
+from PIL import Image, ImageStat, ImageEnhance
 from playwright.sync_api import sync_playwright
 
 GAS_URL = os.getenv(
@@ -16,6 +16,7 @@ GAS_URL = os.getenv(
 )
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 SCREENSHOT_DIR = Path("screenshots")
+DIAG_DIR = Path("diagnostics")
 
 PROMPT = """あなたは中古遊技機相場表の画像読み取り担当です。
 画像1枚目はパチンコ、2枚目はパチスロの最新ランキング表です。
@@ -58,6 +59,16 @@ def capture_table(page, url: str, output: Path) -> None:
     print(f"撮影ページ: {url} / title={title!r} / 本文文字数={len(body_text)}", flush=True)
     if len(body_text.strip()) < 50:
         raise RuntimeError(f"相場ページの本文が短すぎます: {url}")
+    # 現在のページを撮影。表が iframe に入っている場合も診断できるよう記録。
+    frames = page.frames
+    print(f"フレーム数: {len(frames)}", flush=True)
+    for index, frame in enumerate(frames[:10]):
+        try:
+            text = frame.locator("body").inner_text(timeout=3000)
+            print(f"frame[{index}]: url={frame.url[:180]} / 文字数={len(text)} / 冒頭={text[:180]!r}", flush=True)
+        except Exception as exc:
+            print(f"frame[{index}] 確認不可: {type(exc).__name__}", flush=True)
+    print(f"表要素数: {page.locator('table').count()} / 画像要素数: {page.locator('img').count()}", flush=True)
     page.screenshot(path=str(output), full_page=True)
     check_image(output)
     print(f"撮影完了: {output}", flush=True)
@@ -165,8 +176,19 @@ def run() -> None:
         finally:
             browser.close()
 
-    report = analyze_images(pachinko, slot)
-    validate_report(report)
+    try:
+        report = analyze_images(pachinko, slot)
+        validate_report(report)
+    except Exception:
+        # エラー時だけ、今回撮影した画像を診断用に一時配置。
+        # GitHub Actions の artifact に保存する設定をした場合のみダウンロード可能。
+        DIAG_DIR.mkdir(exist_ok=True)
+        import shutil
+        for source in (pachinko, slot):
+            if source.exists():
+                shutil.copy2(source, DIAG_DIR / source.name)
+        print("診断画像を diagnostics/ に用意しました。Driveには送信しません。", flush=True)
+        raise
     timestamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y/%m/%d %H:%M 更新")
     full_report = f"【{timestamp}】\n\n{report}\n"
     print("検証成功。Google Driveへ最新データを送信します", flush=True)
