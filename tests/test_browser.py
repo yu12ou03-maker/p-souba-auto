@@ -23,7 +23,8 @@ class BrowserTests(unittest.TestCase):
                 }, 700)""")
                 with tempfile.TemporaryDirectory() as temp:
                     images = app.capture_chunks(page, 'パチンコ', app.Path(temp))
-                    self.assertEqual(len(images), 5)
+                    self.assertEqual(len(images), 4)
+                    self.assertEqual([r['rank'] for _, refs in images for r in refs], list(range(1, 101)))
                     self.assertEqual(page.locator('.price').first.inner_text(), '123,456円')
             finally:
                 browser.close()
@@ -56,8 +57,11 @@ class BrowserTests(unittest.TestCase):
                 page.route('**/*', route)
                 with tempfile.TemporaryDirectory() as temp:
                     images = app.collect_images(page, 'testuser', 'synthetic-password', app.Path(temp))
-                    self.assertEqual(len(images['パチンコ']), 5)
-                    self.assertEqual(len(images['パチスロ']), 5)
+                    self.assertEqual(len(images['パチンコ']), 4)
+                    self.assertEqual(len(images['パチスロ']), 4)
+                    for chunks in images.values():
+                        self.assertEqual([r['rank'] for _, refs in chunks for r in refs], list(range(1, 101)))
+                        self.assertTrue(all(len(refs) == 25 for _, refs in chunks))
                     self.assertEqual(images['パチスロ'][0][1][0]['name'], 'スロット機種1')
                     self.assertTrue(all(path.is_file() for chunks in images.values() for path, _ in chunks))
                 self.assertTrue(any(method == 'POST' for method, _ in requests))

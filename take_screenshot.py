@@ -201,7 +201,7 @@ def ranking_snapshot(page, category, expected=100):
     return candidates[0]
 
 
-def capture_chunks(page, category, directory, expected=100, chunk_size=20):
+def capture_chunks(page, category, directory, expected=100, chunk_size=25):
     deadline = time.monotonic() + 30
     while True:
         try:
