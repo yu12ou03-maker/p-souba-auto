@@ -269,7 +269,8 @@ def gemini_request(path, key, payload=None):
                 return json.loads(response.read())
         except urllib.error.HTTPError as exc:
             if exc.code not in (500, 502, 503, 504) or attempt == 2:
-                raise DataError(f'Gemini HTTP {exc.code}。解析中止') from None
+                endpoint = path.split('?')[0]
+                raise DataError(f'Gemini HTTP {exc.code} ({endpoint})。解析中止') from None
         except (TimeoutError, urllib.error.URLError):
             if attempt == 2:
                 raise DataError('Gemini接続の再試行上限') from None
@@ -283,13 +284,18 @@ def select_model(key):
         requested = requested.removeprefix('models/')
         if not re.fullmatch(r'gemini-[a-zA-Z0-9.-]+', requested):
             raise DataError('GEMINI_MODELが不正です')
-        return requested
     models = gemini_request('models?pageSize=1000', key).get('models', [])
     available = {m['name'].removeprefix('models/') for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])}
-    for candidate in ('gemini-2.5-flash', 'gemini-2.0-flash'):
+    visible = sorted(m for m in available if re.fullmatch(r'gemini-[a-zA-Z0-9.-]+', m) and 'flash' in m)
+    print('::notice title=利用可能なGeminiモデル::' + json.dumps({'requested': requested, 'flash_models': visible[:30]}))
+    if requested:
+        if requested not in available:
+            raise DataError('指定されたGEMINI_MODELはAPIの利用可能一覧にありません')
+        return requested
+    for candidate in ('gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'):
         if candidate in available:
             return candidate
-    raise DataError('利用可能な安定版Flashモデルなし。GEMINI_MODELの設定が必要です')
+    raise DataError('利用可能なFlashモデルなし。GEMINI_MODELの設定が必要です')
 
 
 def parse_gemini(result, refs):
@@ -443,6 +449,7 @@ def run():
                 key = os.environ['GEMINI_API_KEY']
                 model = select_model(key)
                 LOG.info('Geminiモデル: %s', model)
+                print('::notice title=ランキング撮影完了::' + json.dumps({'model': model, 'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ']), 'drive_sent': False}))
                 data = analyze_images(images, key, model)
                 format_report(data, 100)
                 LOG.info('検証完了: パチンコ=%d件 パチスロ=%d件', len(data['パチンコ']), len(data['パチスロ']))
