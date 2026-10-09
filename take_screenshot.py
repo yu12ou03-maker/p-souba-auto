@@ -29,6 +29,12 @@ class DataError(ValueError):
     pass
 
 
+class GeminiAPIError(DataError):
+    def __init__(self, status, endpoint):
+        self.status = status
+        super().__init__(f'Gemini HTTP {status} ({endpoint})。解析中止')
+
+
 def clean(text):
     return re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', text)).strip()
 
@@ -270,7 +276,7 @@ def gemini_request(path, key, payload=None):
         except urllib.error.HTTPError as exc:
             if exc.code not in (500, 502, 503, 504) or attempt == 2:
                 endpoint = path.split('?')[0]
-                raise DataError(f'Gemini HTTP {exc.code} ({endpoint})。解析中止') from None
+                raise GeminiAPIError(exc.code, endpoint) from None
         except (TimeoutError, urllib.error.URLError):
             if attempt == 2:
                 raise DataError('Gemini接続の再試行上限') from None
@@ -278,7 +284,7 @@ def gemini_request(path, key, payload=None):
     raise DataError('Gemini応答を取得できません')
 
 
-def select_model(key):
+def select_model(key, all_candidates=False):
     requested = os.getenv('GEMINI_MODEL')
     if requested:
         requested = requested.removeprefix('models/')
@@ -291,10 +297,10 @@ def select_model(key):
     if requested:
         if requested not in available:
             raise DataError('指定されたGEMINI_MODELはAPIの利用可能一覧にありません')
-        return requested
-    for candidate in ('gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
-        if candidate in available:
-            return candidate
+        return [requested] if all_candidates else requested
+    candidates = [name for name in ('gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash') if name in available]
+    if candidates:
+        return candidates[:3] if all_candidates else candidates[0]
     raise DataError('利用可能なFlashモデルなし。GEMINI_MODELの設定が必要です')
 
 
@@ -346,26 +352,39 @@ def analyze_chunk(path, refs, key, model, verify=False):
     raise DataError('Gemini解析失敗')
 
 
-def analyze_images(images, key, model):
+def analyze_images(images, key, model, alternatives=()):
     if set(images) != {'パチンコ', 'パチスロ'}:
         raise DataError('両区分の画像が必要です')
+    models = [model] + list(alternatives)
+    active = 0
+    used = set()
     data = {}
     for label in ('パチンコ', 'パチスロ'):
         rows = []
         for path, refs in images[label]:
-            first = analyze_chunk(path, refs, key, model)
-            time.sleep(13)  # pace requests; 429 stops without evading quota
-            second = analyze_chunk(path, refs, key, model, verify=True)
+            while True:
+                try:
+                    first = analyze_chunk(path, refs, key, models[active])
+                    time.sleep(13)
+                    second = analyze_chunk(path, refs, key, models[active], verify=True)
+                    break
+                except GeminiAPIError as exc:
+                    # Never bypass quota/authentication failures by changing models.
+                    if exc.status not in (404, 503) or active + 1 >= len(models):
+                        raise
+                    active += 1
+                    print('::notice title=Geminiモデル切替::' + json.dumps({'http_status': exc.status, 'model': models[active]}))
             if first != second:
                 raise DataError('Geminiの2回の読み取りが一致しません。保存中止')
             rows.extend(first)
-            LOG.info('%s: %d〜%d位の解析・照合完了', label, refs[0]['rank'], refs[-1]['rank'])
+            used.add(models[active])
+            print('::notice title=画像解析・照合完了::' + json.dumps({'category': label, 'first_rank': refs[0]['rank'], 'last_rank': refs[-1]['rank'], 'model': models[active]}))
             time.sleep(13)
         validate_rows(rows, 100)
         if len(rows) != 100:
             raise DataError('100件の解析結果が必要です')
         data[label] = rows
-    return data
+    return data, sorted(used)
 
 
 def format_report(data, minimum=10):
@@ -447,13 +466,15 @@ def run():
                 page = context.new_page()
                 images = collect_images(page, os.environ['P_SOUBA_USER'], os.environ['P_SOUBA_PASS'], directory)
                 key = os.environ['GEMINI_API_KEY']
-                model = select_model(key)
+                candidates = select_model(key, all_candidates=True)
+                model = candidates[0]
                 LOG.info('Geminiモデル: %s', model)
                 print('::notice title=ランキング撮影完了::' + json.dumps({'model': model, 'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ']), 'drive_sent': False}))
-                data = analyze_images(images, key, model)
-                format_report(data, 100)
+                data, used_models = analyze_images(images, key, model, candidates[1:])
+                validated_report = format_report(data, 100)
+                (directory / 'validated_report.txt').write_text(validated_report, encoding='utf-8')
                 LOG.info('検証完了: パチンコ=%d件 パチスロ=%d件', len(data['パチンコ']), len(data['パチスロ']))
-                summary = {'mode': 'dry_run' if args.dry_run else 'publish', 'model': model, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': True, 'drive_sent': False}
+                summary = {'mode': 'dry_run' if args.dry_run else 'publish', 'models': used_models, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': True, 'drive_sent': False}
                 if not args.dry_run:
                     publish(data, os.getenv('GAS_URL') or DEFAULT_GAS_URL, 100)
                     summary['drive_sent'] = True

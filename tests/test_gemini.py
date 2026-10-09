@@ -76,6 +76,9 @@ class GeminiTests(unittest.TestCase):
 
 
 class ModelSelectionTests(unittest.TestCase):
+    def setUp(self):
+        printer = patch('builtins.print'); printer.start(); self.addCleanup(printer.stop)
+
     def test_original_model_preferred_when_available(self):
         models = {'models': [{'name': 'models/' + name, 'supportedGenerationMethods': ['generateContent']} for name in ('gemini-2.5-flash', 'gemini-3.6-flash')]}
         with patch.dict(app.os.environ, {'GEMINI_MODEL': ''}), patch.object(app, 'gemini_request', return_value=models):
@@ -84,3 +87,25 @@ class ModelSelectionTests(unittest.TestCase):
     def test_override_must_be_in_available_models(self):
         with patch.dict(app.os.environ, {'GEMINI_MODEL': 'gemini-unavailable'}), patch.object(app, 'gemini_request', return_value={'models': []}), self.assertRaises(app.DataError):
             app.select_model('synthetic-key')
+
+
+class FallbackTests(unittest.TestCase):
+    def setUp(self):
+        printer = patch('builtins.print'); printer.start(); self.addCleanup(printer.stop)
+        self.refs = [{'rank': i, 'name': f'機種{i}'} for i in range(1, 101)]
+        self.rows = [app.Row(r['rank'], r['name'], 123456, 0) for r in self.refs]
+        self.images = {'パチンコ': [(Path('p.png'), self.refs)], 'パチスロ': [(Path('s.png'), self.refs)]}
+
+    def test_unavailable_model_falls_back_and_rechecks_same_model(self):
+        with patch.object(app, 'analyze_chunk', side_effect=[app.GeminiAPIError(503, 'test'), self.rows, self.rows, self.rows, self.rows]) as analyze, patch.object(app.time, 'sleep'):
+            data, used = app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
+            self.assertEqual(len(data['パチスロ']), 100)
+            self.assertEqual(used, ['gemini-3.8-flash'])
+            self.assertEqual(analyze.call_args_list[1].args[3], 'gemini-3.8-flash')
+            self.assertEqual(analyze.call_args_list[2].args[3], 'gemini-3.8-flash')
+
+    def test_no_model_switch_for_quota_or_authentication(self):
+        for status in (429, 401, 403):
+            with patch.object(app, 'analyze_chunk', side_effect=app.GeminiAPIError(status, 'test')) as analyze, self.assertRaises(app.DataError):
+                app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
+            analyze.assert_called_once()
