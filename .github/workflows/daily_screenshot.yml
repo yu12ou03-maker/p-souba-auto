@@ -1,45 +1,60 @@
 name: 毎朝相場データ自動取得
-
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *' # 09:00 JST; GitHub may delay scheduled runs
   workflow_dispatch:
-
+    inputs:
+      dry_run:
+        description: '撮影・Gemini解析・検証のみ（Drive更新なし）'
+        type: boolean
+        default: true
+  push:
+    branches: [codex/souba-gemini-repair]
+    paths:
+      - take_screenshot.py
+      - requirements.txt
+      - tests/**
+      - .github/workflows/daily_screenshot.yml
+permissions:
+  contents: read
+concurrency:
+  group: souba-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   take-screenshot:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
+    timeout-minutes: 30
     steps:
-      - name: リポジトリをチェックアウト
-        uses: actions/checkout@v4
-
-      - name: Pythonのセットアップ
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: 必要なライブラリのインストール
+          cache: pip
+      - name: 依存関係とChromiumを導入
         run: |
-          python -m pip install --upgrade pip
-          pip install playwright google-generativeai pillow
-          playwright install --with-deps chromium
-
-      - name: スクリーンショット撮影とAI解析を実行
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: 検証テスト
+        run: python -m unittest discover -s tests -v
+      - name: ランキング撮影・Gemini解析・正常時のみ保存
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GAS_URL: ${{ secrets.GAS_URL }}
+          DRY_RUN: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
-          python take_screenshot.py
-
-      - name: 失敗時の診断画像を保存
-        if: ${{ failure() }}
+          if [ "$DRY_RUN" = "true" ]; then
+            python take_screenshot.py --dry-run
+          else
+            python take_screenshot.py
+          fi
+      - name: 診断画像・検証結果を保存
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshot-diagnostic
+          name: souba-diagnostic-${{ github.run_id }}
           path: diagnostics/
-          if-no-files-found: warn
-          retention-days: 1
+          if-no-files-found: ignore
+          retention-days: 3
