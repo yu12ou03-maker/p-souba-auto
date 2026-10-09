@@ -8,6 +8,7 @@ on:
 jobs:
   take-screenshot:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
@@ -22,6 +23,7 @@ jobs:
 
       - name: 必要なライブラリのインストール
         run: |
+          python -m pip install --upgrade pip
           pip install playwright google-generativeai pillow
           playwright install --with-deps chromium
 
@@ -34,7 +36,10 @@ jobs:
           python take_screenshot.py
 
       - name: 失敗時の診断画像を保存
-        if: failure()
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: screenshot-d
+          name: screenshot-diagnostic
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 1
