@@ -1,0 +1,37 @@
+name: 相場ログイン診断（Drive送信なし）
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/souba-login-diagnostic
+    paths:
+      - scripts/diagnose_login.py
+      - .github/workflows/diagnose_login.yml
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 診断用ブラウザを準備
+        run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: ログインと価格欄の表示だけを診断
+        env:
+          P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
+          P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
+        run: python scripts/diagnose_login.py
+      - name: 秘密情報を含まない診断結果を保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: souba-login-diagnostic-${{ github.run_id }}
+          path: diagnostics/login-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
