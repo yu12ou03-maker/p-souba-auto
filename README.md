@@ -14,9 +14,9 @@ Geminiには順位・機種名の参照情報と画像を渡し、同じ行の�
 
 ## 認証情報と実行
 
-GitHub Secretsの`P_SOUBA_USER`、`P_SOUBA_PASS`、`GEMINI_API_KEY`を使用します。`GAS_URL`は任意で、未設定なら従来のデプロイURLを使います。`GEMINI_MODEL`をRepository variableで指定できます。未指定ではAPIから利用可能なモデルを取得し、`gemini-2.5-flash`、次いで`gemini-2.0-flash`を選択します。モデルの実際の利用枠は生成時に確認されます。
+GitHub Secretsの`P_SOUBA_USER`、`P_SOUBA_PASS`、`GEMINI_API_KEY`を使用します。`GAS_URL`は任意で、未設定なら従来のデプロイURLを使います。`GEMINI_MODEL`をRepository variableで指定できます。未指定ではAPIから利用可能なモデルを取得し、旧コードと同じ`gemini-3.6-flash`を優先して選択します。一覧にない場合だけ、一覧に掲載された別のFlashモデルを使用します。モデルの実際の利用枠は生成時に確認されます。
 
-旧SDKの終了と存在未確認の固定モデルを避け、標準のHTTPS REST APIを使います。APIキーはURLに入れずヘッダーに設定します。生の例外、Cookie、HTML、ログイン画面、ID・パスワードをログや診断に保存しません。
+旧SDKの終了と利用可能一覧にない固定モデルを避け、標準のHTTPS REST APIを使います。APIキーはURLに入れずヘッダーに設定します。生の例外、Cookie、HTML、ログイン画面、ID・パスワードをログや診断に保存しません。
 
 ```sh
 python -m pip install -r requirements.txt

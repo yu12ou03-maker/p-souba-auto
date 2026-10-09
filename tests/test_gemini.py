@@ -73,3 +73,14 @@ class GeminiTests(unittest.TestCase):
                 payload = request.call_args.args[2]
                 self.assertEqual(payload['contents'][0]['parts'][1]['inlineData']['mimeType'], 'image/png')
                 self.assertIn('下から', payload['contents'][0]['parts'][0]['text'])
+
+
+class ModelSelectionTests(unittest.TestCase):
+    def test_original_model_preferred_when_available(self):
+        models = {'models': [{'name': 'models/' + name, 'supportedGenerationMethods': ['generateContent']} for name in ('gemini-2.5-flash', 'gemini-3.6-flash')]}
+        with patch.dict(app.os.environ, {'GEMINI_MODEL': ''}), patch.object(app, 'gemini_request', return_value=models):
+            self.assertEqual(app.select_model('synthetic-key'), 'gemini-3.6-flash')
+
+    def test_override_must_be_in_available_models(self):
+        with patch.dict(app.os.environ, {'GEMINI_MODEL': 'gemini-unavailable'}), patch.object(app, 'gemini_request', return_value={'models': []}), self.assertRaises(app.DataError):
+            app.select_model('synthetic-key')

@@ -292,7 +292,7 @@ def select_model(key):
         if requested not in available:
             raise DataError('指定されたGEMINI_MODELはAPIの利用可能一覧にありません')
         return requested
-    for candidate in ('gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'):
+    for candidate in ('gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'):
         if candidate in available:
             return candidate
     raise DataError('利用可能なFlashモデルなし。GEMINI_MODELの設定が必要です')
