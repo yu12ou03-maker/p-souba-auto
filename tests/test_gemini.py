@@ -109,3 +109,19 @@ class FallbackTests(unittest.TestCase):
             with patch.object(app, 'analyze_chunk', side_effect=app.GeminiAPIError(status, 'test')) as analyze, self.assertRaises(app.DataError):
                 app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
             analyze.assert_called_once()
+
+
+class DiagnosticTests(unittest.TestCase):
+    def test_diagnostics_do_not_include_response_names_prices_or_secrets(self):
+        ref = [{'rank': 1, 'name': '参照機種'}]
+        result = response([{'rank': 1, 'name': '秘密の文字列', 'price': 98765432, 'change': None}])
+        diagnostic = app.gemini_diagnostics(result, ref)
+        self.assertEqual(diagnostic['name_mismatches'], [1])
+        self.assertEqual(diagnostic['unreadable_amounts'], [1])
+        serialized = json.dumps(diagnostic, ensure_ascii=False)
+        self.assertNotIn('秘密の文字列', serialized)
+        self.assertNotIn('98765432', serialized)
+
+    def test_truncated_output_is_identified(self):
+        diagnostic = app.gemini_diagnostics(response([], 'MAX_TOKENS'), [{'rank': 1, 'name': '参照'}])
+        self.assertEqual(diagnostic['finish_reason'], 'MAX_TOKENS')

@@ -326,6 +326,43 @@ def parse_gemini(result, refs):
         raise DataError('Gemini結果の件数・順位・機種名・価格・差額が不正です') from None
 
 
+def gemini_diagnostics(result, refs):
+    """Only structural metadata; never log response text, names or money."""
+    diagnostic = {'expected_rows': len(refs)}
+    try:
+        candidates = result.get('candidates', [])
+        diagnostic['candidate_count'] = len(candidates)
+        if not candidates:
+            return diagnostic
+        finish = candidates[0].get('finishReason')
+        diagnostic['finish_reason'] = finish if finish in ('STOP', 'MAX_TOKENS', 'SAFETY', 'RECITATION', 'OTHER', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'MALFORMED_FUNCTION_CALL', None) else 'unknown'
+        text = ''.join(p.get('text', '') for p in candidates[0].get('content', {}).get('parts', []) if not p.get('thought'))
+        payload = json.loads(text)
+        rows = payload.get('rows')
+        diagnostic['json_rows_list'] = isinstance(rows, list)
+        if not isinstance(rows, list):
+            return diagnostic
+        diagnostic['received_rows'] = len(rows)
+        diagnostic['name_mismatches'] = []
+        diagnostic['rank_mismatches'] = []
+        diagnostic['unreadable_amounts'] = []
+        diagnostic['type_errors'] = []
+        for row, ref in zip(rows, refs):
+            if not isinstance(row, dict):
+                diagnostic['type_errors'].append(ref['rank']); continue
+            if row.get('rank') != ref['rank']:
+                diagnostic['rank_mismatches'].append(ref['rank'])
+            if not isinstance(row.get('name'), str) or clean(row['name']) != ref['name']:
+                diagnostic['name_mismatches'].append(ref['rank'])
+            if row.get('price') is None or row.get('change') is None:
+                diagnostic['unreadable_amounts'].append(ref['rank'])
+            if any(type(row.get(k)) is not int for k in ('rank', 'price', 'change')):
+                diagnostic['type_errors'].append(ref['rank'])
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError):
+        diagnostic['json_or_structure_invalid'] = True
+    return diagnostic
+
+
 def analyze_chunk(path, refs, key, model, verify=False):
     prompt = ('中古機のランキング表の画像を転記してください。推測・補完は禁止。'
         '下記の参照情報はHTMLで確認した順位と機種名です。順位と機種名は参照情報の通りに出力し、'
@@ -346,6 +383,9 @@ def analyze_chunk(path, refs, key, model, verify=False):
         try:
             return parse_gemini(response, refs)
         except DataError:
+            diagnostic = gemini_diagnostics(response, refs)
+            diagnostic.update({'attempt': attempt + 1, 'model': model})
+            print('::notice title=Gemini応答の構造診断::' + json.dumps(diagnostic))
             if attempt:
                 raise
             time.sleep(2)
