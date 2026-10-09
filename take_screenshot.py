@@ -219,6 +219,16 @@ def capture_chunks(page, category, directory, expected=100, chunk_size=20):
         throw new Error('ranking image unavailable');
     }""")
     directory.mkdir(parents=True, exist_ok=True)
+    # Record rendering state only, without resource URLs, HTML or account data.
+    state = table.evaluate("""table => Array.from(table.querySelectorAll('img')).slice(0, 12).map(img => {
+      const style = getComputedStyle(img); const box = img.getBoundingClientRect();
+      return {naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
+        width: box.width, height: box.height, display: style.display,
+        visibility: style.visibility, opacity: style.opacity};
+    })""")
+    (directory / ('pachinko-image-state.json' if category == 'パチンコ' else 'slot-image-state.json')).write_text(json.dumps(state), encoding='utf-8')
+    if table.locator('img').count():
+        table.locator('img').first.screenshot(path=str(directory / ('pachinko-first-glyph.png' if category == 'パチンコ' else 'slot-first-glyph.png')), timeout=10000)
     chunks = []
     for offset in range(0, len(refs), chunk_size):
         visible = [header_index] + row_indexes[offset:offset + chunk_size]
