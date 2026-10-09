@@ -226,13 +226,40 @@ def capture_chunks(page, category, directory, expected=100, chunk_size=20):
           const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table);
           rows.forEach((row, i) => {row.dataset.soubaDisplay = row.style.display; if (!visible.includes(i)) row.style.display = 'none';});
         }""", visible)
-        path = directory / f'{"pachinko" if category == "パチンコ" else "slot"}-{offset + 1:03d}.png'
+        stem = f'{"pachinko" if category == "パチンコ" else "slot"}-{offset + 1:03d}'
+        full_path = directory / (stem + '.png')
+        path = directory / (stem + '-money.png')
         try:
-            table.screenshot(path=str(path), animations='disabled', timeout=30000)
+            table.screenshot(path=str(full_path), animations='disabled', timeout=30000)
+            # Preserve the full table for human review, and send a narrow money view
+            # to Gemini so unrelated columns cannot shrink the numeric glyphs.
+            table.evaluate("""(table, headerIndex) => {
+              const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table);
+              const cells = Array.from(rows[headerIndex].children);
+              const keep = cells.map((cell,i) => ['順位','平均価格','前日差額'].includes(cell.innerText.trim()) ? i : -1).filter(i => i >= 0);
+              if (keep.length !== 3) throw new Error('money headers missing');
+              table.dataset.soubaWidth = table.style.width;
+              table.style.width = '420px';
+              rows.forEach(row => Array.from(row.children).forEach((cell, i) => {
+                cell.dataset.soubaCellDisplay = cell.style.display;
+                if (!keep.includes(i)) cell.style.display = 'none';
+              }));
+            }""", header_index)
+            try:
+                table.screenshot(path=str(path), animations='disabled', timeout=30000)
+            finally:
+                table.evaluate("""table => {
+                  table.style.width = table.dataset.soubaWidth || ''; delete table.dataset.soubaWidth;
+                  Array.from(table.querySelectorAll('[data-souba-cell-display]')).forEach(cell => {
+                    cell.style.display = cell.dataset.soubaCellDisplay; delete cell.dataset.soubaCellDisplay;
+                  });
+                }""")
             from PIL import Image, ImageStat
             with Image.open(path) as image:
-                if image.width < 700 or image.height < 200 or ImageStat.Stat(image.convert('L')).stddev[0] < 5:
+                if image.width < 300 or image.height < 200 or ImageStat.Stat(image.convert('L')).stddev[0] < 5:
                     raise DataError('ランキング撮影画像が不正です')
+                if offset == 0:
+                    print('::notice title=金額画像のサイズ::' + json.dumps({'category': category, 'width': image.width, 'height': image.height}))
         finally:
             table.evaluate("""table => Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table).forEach(row => {row.style.display = row.dataset.soubaDisplay || ''; delete row.dataset.soubaDisplay;})""")
         chunks.append((path, refs[offset:offset + chunk_size]))
@@ -364,7 +391,7 @@ def gemini_diagnostics(result, refs):
 
 
 def analyze_chunk(path, refs, key, model, verify=False):
-    prompt = ('中古機のランキング表の画像を転記してください。推測・補完は禁止。'
+    prompt = ('画像は中古機のランキング表の「順位・平均価格・前日差額」の3列を拡大撮影したものです。推測・補完は禁止。'
         '下記の参照情報はHTMLで確認した順位と機種名です。順位と機種名は参照情報の通りに出力し、'
         '平均価格と前日差額だけを同じ行の画像から読み取ってください。'
         '差額のプラス・マイナス・±0を厳密に確認し、円とカンマを除いた整数で返してください。'
@@ -492,7 +519,7 @@ def run():
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                context = browser.new_context(viewport={'width': 1440, 'height': 1000})
+                context = browser.new_context(viewport={'width': 1440, 'height': 1000}, device_scale_factor=2)
                 # HTTP site login is explicitly authorized; credentials must stay on this site.
                 def guard(route):
                     if route.request.is_navigation_request():
