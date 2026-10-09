@@ -27,6 +27,18 @@ jobs:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
         run: python scripts/diagnose_login.py
+      - name: 診断結果を注釈にも表示
+        if: always()
+        run: |
+          python - <<'PYCODE'
+          import json
+          from pathlib import Path
+          path = Path('diagnostics/login-summary.json')
+          if path.exists():
+              summary = json.dumps(json.loads(path.read_text()), ensure_ascii=False)
+              summary = summary.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::notice title=相場ログイン診断結果::' + summary)
+          PYCODE
       - name: 秘密情報を含まない診断結果を保存
         if: always()
         uses: actions/upload-artifact@v4
