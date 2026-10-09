@@ -4,6 +4,10 @@ on:
     - cron: '0 0 * * *' # 09:00 JST; GitHub may delay scheduled runs
   workflow_dispatch:
     inputs:
+      capture_only:
+        description: '撮影のみ（Gemini・Driveへの送信なし）'
+        type: boolean
+        default: true
       dry_run:
         description: '撮影・Gemini解析・検証のみ（Drive更新なし）'
         type: boolean
@@ -43,9 +47,12 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GAS_URL: ${{ secrets.GAS_URL }}
+          CAPTURE_ONLY: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.capture_only) }}
           DRY_RUN: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
-          if [ "$DRY_RUN" = "true" ]; then
+          if [ "$CAPTURE_ONLY" = "true" ]; then
+            python take_screenshot.py --capture-only
+          elif [ "$DRY_RUN" = "true" ]; then
             python take_screenshot.py --dry-run
           else
             python take_screenshot.py

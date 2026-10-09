@@ -8,6 +8,26 @@ from test_souba import fixture
 
 
 class BrowserTests(unittest.TestCase):
+    def test_capture_waits_for_delayed_prices(self):
+        with sync_playwright() as p:
+            options = {'headless': True}
+            if os.getenv('TEST_CHROMIUM_PATH'):
+                options['executable_path'] = os.environ['TEST_CHROMIUM_PATH']
+            browser = p.chromium.launch(**options)
+            try:
+                page = browser.new_page()
+                html = fixture(count=100).replace('123,456円', '<span class="price"></span>')
+                page.set_content('<style>td{height:35px}table{width:960px}</style>' + html)
+                page.evaluate("""() => setTimeout(() => {
+                    document.querySelectorAll('.price').forEach(el => el.textContent = '123,456円');
+                }, 700)""")
+                with tempfile.TemporaryDirectory() as temp:
+                    images = app.capture_chunks(page, 'パチンコ', app.Path(temp))
+                    self.assertEqual(len(images), 5)
+                    self.assertEqual(page.locator('.price').first.inner_text(), '123,456円')
+            finally:
+                browser.close()
+
     def test_login_and_both_rankings(self):
         with sync_playwright() as p:
             options = {'headless': True}

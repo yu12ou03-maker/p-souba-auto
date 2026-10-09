@@ -212,6 +212,21 @@ def capture_chunks(page, category, directory, expected=100, chunk_size=20):
                 raise
             page.wait_for_timeout(500)
     table = page.locator('table').nth(table_index)
+    # The site's JavaScript inserts digit images after DOMContentLoaded.
+    # Waiting on an empty image list succeeds immediately, so require every
+    # price cell to have content before checking image decoding.
+    try:
+        page.wait_for_function("""({tableIndex, headerIndex, rowIndexes}) => {
+          const table = document.querySelectorAll('table')[tableIndex];
+          const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table);
+          const column = Array.from(rows[headerIndex].children).findIndex(c => c.innerText.trim() === '平均価格');
+          return column >= 0 && rowIndexes.every(i => {
+            const cell = rows[i].children[column];
+            return cell && (cell.querySelector('img') || /[0-9０-９]/.test(cell.innerText));
+          });
+        }""", arg={'tableIndex': table_index, 'headerIndex': header_index, 'rowIndexes': row_indexes}, timeout=30000)
+    except Exception:
+        raise DataError('平均価格の表示が完了しません。撮影・送信を中止します') from None
     # Images must have loaded. Empty/failed glyph images abort rather than be guessed.
     table.evaluate("""async table => {
       await Promise.all(Array.from(table.querySelectorAll('img')).map(img => img.decode()));
@@ -518,12 +533,13 @@ def diagnose(page, directory, exc):
 def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='取得・検証のみ。GASに送信しない')
+    parser.add_argument('--capture-only', action='store_true', help='撮影のみ。Gemini・GASへの送信なし')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     directory = Path('diagnostics') / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     page = None
     try:
-        for key in ('P_SOUBA_USER', 'P_SOUBA_PASS', 'GEMINI_API_KEY'):
+        for key in (('P_SOUBA_USER', 'P_SOUBA_PASS') if args.capture_only else ('P_SOUBA_USER', 'P_SOUBA_PASS', 'GEMINI_API_KEY')):
             if not os.getenv(key):
                 raise DataError(f'{key} 未設定')
         with sync_playwright() as p:
@@ -542,6 +558,12 @@ def run():
                 context.route('**/*', guard)
                 page = context.new_page()
                 images = collect_images(page, os.environ['P_SOUBA_USER'], os.environ['P_SOUBA_PASS'], directory)
+                if args.capture_only:
+                    summary = {'mode': 'capture_only', 'gemini_requests': 0, 'drive_sent': False,
+                        'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ'])}
+                    (directory / 'summary.json').write_text(json.dumps(summary), encoding='utf-8')
+                    print('::notice title=撮影のみ検証完了::' + json.dumps(summary))
+                    return 0
                 key = os.environ['GEMINI_API_KEY']
                 candidates = select_model(key, all_candidates=True)
                 model = candidates[0]
