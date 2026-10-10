@@ -372,6 +372,7 @@ def read_local_ranking(page, category, directory):
     headings = table.evaluate("""(table, i) => Array.from(Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table)[i].children).map(c => c.innerText.trim())""", header_index)
     rows = table.locator(':scope > tbody > tr, :scope > tr')
     prices = {}
+    errors = []
     data = []
     stem = 'pachinko' if category == 'パチンコ' else 'slot'
     for index, ref in zip(indexes, refs):
@@ -401,7 +402,8 @@ def read_local_ranking(page, category, directory):
                 try:
                     prices[fingerprint] = recognize_price(png, content['digits'])
                 except DataError as exc:
-                    raise DataError(f'{category} {ref["rank"]}位: {exc}') from None
+                    errors.append(f'{category} {ref["rank"]}位: {exc}')
+                    continue
             price = prices[fingerprint]
         else:
             price = money(content['text'])
@@ -410,6 +412,8 @@ def read_local_ranking(page, category, directory):
             change_text = '0円'
         change = money(change_text, signed=True)
         data.append(Row(ref['rank'], ref['name'], price, change))
+    if errors:
+        raise DataError(errors[0] + f'（OCR不成立 {len(errors)}件、送信なし）')
     validate_rows(data, 100)
     print('::notice title=ローカルOCR区分検証完了::' + json.dumps({'category': category, 'rows': len(data), 'gemini_requests': 0}))
     return data
