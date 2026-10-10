@@ -325,7 +325,7 @@ def collect_images(page, user, password, directory, reader=None):
     return {'パチンコ': pachinko, 'パチスロ': slot}
 
 
-def recognize_price(png, digit_count):
+def recognize_price_ocr(png, digit_count):
     """Local Tesseract only: require two segmentation modes to agree."""
     from PIL import Image, ImageOps
     if not shutil.which('tesseract'):
@@ -366,6 +366,51 @@ def recognize_price(png, digit_count):
     return results[0]
 
 
+def digit_patterns(png, threshold):
+    """Split the rendered glyph strip; preserve exact shapes, no fuzzy match."""
+    from PIL import Image
+    image = Image.open(io.BytesIO(png)).convert('RGB')
+    if image.width > 1000 or image.height > 200:
+        raise DataError('価格画像の寸法が不正です')
+    pixels = image.load()
+    active = [x for x in range(image.width) if any(min(pixels[x, y]) < threshold for y in range(image.height))]
+    groups = []
+    for x in active:
+        if not groups or x > groups[-1][-1] + 1:
+            groups.append([x])
+        else:
+            groups[-1].append(x)
+    patterns = []
+    for group in groups:
+        ys = [y for y in range(image.height) if any(min(pixels[x, y]) < threshold for x in group)]
+        patterns.append('/'.join(''.join('1' if min(pixels[x, y]) < threshold else '0'
+            for x in range(group[0], group[-1] + 1)) for y in range(min(ys), max(ys) + 1)))
+    return patterns
+
+
+def recognize_price(png, digit_count):
+    # Templates were labeled from reviewed price images, never from filenames.
+    path = Path(__file__).parent / 'digit_templates.json'
+    if not path.is_file():
+        raise DataError('数字画像の照合辞書が未準備です')
+    templates = json.loads(path.read_text(encoding='utf-8'))
+    values = []
+    for threshold in (160, 180):
+        labels = templates[str(threshold)]
+        if set(labels) != set('0123456789') or len(set(labels.values())) != 10:
+            raise DataError('数字画像の照合辞書が不正です')
+        reverse = {pattern: digit for digit, pattern in labels.items()}
+        patterns = digit_patterns(png, threshold)
+        if len(patterns) != digit_count:
+            raise DataError('価格画像の桁数が一致しません')
+        if any(pattern not in reverse for pattern in patterns):
+            raise DataError('未確認の数字画像です。推測せず停止します')
+        values.append(money(''.join(reverse[pattern] for pattern in patterns)))
+    if values[0] != values[1]:
+        raise DataError('数字画像の2通りの照合結果が一致しません')
+    return values[0]
+
+
 def read_local_ranking(page, category, directory):
     table_index, header_index, indexes, refs = ranking_snapshot(page, category, 100)
     table = page.locator('table').nth(table_index)
@@ -397,6 +442,8 @@ def read_local_ranking(page, category, directory):
         if 'png' in content:
             png = base64.b64decode(content['png'], validate=True)
             (directory / f'{stem}-price-{ref["rank"]:03d}.png').write_bytes(png)
+            if ref['rank'] == 11:
+                print('::notice title=数字画像字形診断::' + json.dumps({str(t): digit_patterns(png, t) for t in (160, 180)}))
             fingerprint = (png, content['digits'])
             if fingerprint not in prices:
                 try:
@@ -668,7 +715,7 @@ def run():
                     print('::notice title=撮影のみ検証完了::' + json.dumps(summary))
                     return 0
                 if args.engine == 'local':
-                    data, used_models = images, ['local-tesseract']
+                    data, used_models = images, ['local-exact-digit-templates']
                 else:
                     key = os.environ['GEMINI_API_KEY']
                     candidates = select_model(key, all_candidates=True)
