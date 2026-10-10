@@ -1,8 +1,12 @@
-"""ランキング撮影 → Gemini画像解析 → 両区分100件の正常データのみGASへ送信。"""
+"""ランキング画像をローカルOCRで検証し、両区分100件の正常データのみGASへ送信。"""
 import argparse
 import base64
 import json
 import logging
+import io
+import subprocess
+import tempfile
+import shutil
 import os
 import re
 import time
@@ -291,7 +295,7 @@ def capture_chunks(page, category, directory, expected=100, chunk_size=25):
     return chunks
 
 
-def collect_images(page, user, password, directory):
+def collect_images(page, user, password, directory, reader=None):
     navigate(page, urljoin(BASE, 'index.php'))
     field = page.locator('input[type="password"]')
     if not field.count():
@@ -309,12 +313,106 @@ def collect_images(page, user, password, directory):
     page.wait_for_timeout(3000)  # XOOPS login uses a timed redirect.
     navigate(page, PACHINKO_URL)
     pachinko = capture_chunks(page, 'パチンコ', directory)
+    if reader:
+        pachinko = reader(page, 'パチンコ', directory)
     slot_url = find_ranking(page.content(), page.url, 'スロット')
     if urlsplit(slot_url).path != '/krank_2.htm':
         raise DataError('スロットランキングURLが一致しません')
     navigate(page, slot_url)
     slot = capture_chunks(page, 'スロット', directory)
+    if reader:
+        slot = reader(page, 'スロット', directory)
     return {'パチンコ': pachinko, 'パチスロ': slot}
+
+
+def recognize_price(png, digit_count):
+    """Local Tesseract only: require two segmentation modes to agree."""
+    from PIL import Image, ImageOps
+    if not shutil.which('tesseract'):
+        raise DataError('ローカルOCRのtesseractがありません')
+    if not 1 <= digit_count <= 9:
+        raise DataError('価格の数字画像数が不正です')
+    results = []
+    with tempfile.TemporaryDirectory(prefix='souba-ocr-') as temp:
+        original = Image.open(io.BytesIO(png)).convert('RGB')
+        for mode, scale in ((7, 5), (6, 6)):
+            image = ImageOps.grayscale(original)
+            image = image.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
+            if mode == 6:
+                image = image.point(lambda value: 0 if value < 160 else 255)
+            image = ImageOps.expand(image, border=30, fill='white')
+            path = Path(temp) / f'price-{mode}.png'
+            image.save(path)
+            try:
+                result = subprocess.run(['tesseract', str(path), 'stdout', '-l', 'eng', '--psm', str(mode),
+                    '-c', 'tessedit_char_whitelist=0123456789,', 'tsv'], capture_output=True, text=True, timeout=15)
+            except (OSError, subprocess.TimeoutExpired):
+                raise DataError('ローカルOCRの実行失敗') from None
+            if result.returncode:
+                raise DataError('ローカルOCRの実行失敗')
+            words = []
+            for line in result.stdout.splitlines()[1:]:
+                fields = line.split('\t')
+                if len(fields) == 12 and fields[11].strip():
+                    if float(fields[10]) < 60:
+                        raise DataError('ローカルOCRの信頼度が不足しています')
+                    words.append(fields[11].strip())
+            text = ''.join(words)
+            if len(re.sub(r'[^0-9]', '', text)) != digit_count:
+                raise DataError('OCR結果と価格の数字画像数が一致しません')
+            results.append(money(text))
+    if results[0] != results[1]:
+        raise DataError('2通りのローカルOCR結果が一致しません')
+    return results[0]
+
+
+def read_local_ranking(page, category, directory):
+    table_index, header_index, indexes, refs = ranking_snapshot(page, category, 100)
+    table = page.locator('table').nth(table_index)
+    headings = table.evaluate("""(table, i) => Array.from(Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table)[i].children).map(c => c.innerText.trim())""", header_index)
+    rows = table.locator(':scope > tbody > tr, :scope > tr')
+    prices = {}
+    data = []
+    stem = 'pachinko' if category == 'パチンコ' else 'slot'
+    for index, ref in zip(indexes, refs):
+        row = rows.nth(index)
+        cells = row.locator(':scope > td, :scope > th')
+        cell = cells.nth(headings.index('平均価格'))
+        # Compose only images already displayed in the authenticated price cell.
+        # Filenames are not decoded or used as a price lookup table.
+        content = cell.evaluate("""cell => {
+          const all = Array.from(cell.querySelectorAll('img'));
+          if (!all.length) return {text: cell.innerText};
+          const images = all.filter(img => !['enn.jpg', 'akakanma.gif'].includes(new URL(img.src).pathname.split('/').pop()));
+          const digits = images.length;
+          if (!images.length || images.some(img => !img.complete || !img.naturalWidth)) throw new Error('price image missing');
+          const canvas = document.createElement('canvas');
+          canvas.width = images.reduce((n,img) => n + img.naturalWidth, 0) + 16;
+          canvas.height = Math.max(...images.map(img => img.naturalHeight)) + 16;
+          const ctx = canvas.getContext('2d'); ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
+          let x=8; images.forEach(img => {ctx.drawImage(img,x,8); x+=img.naturalWidth;});
+          return {png: canvas.toDataURL('image/png').split(',')[1], digits};
+        }""")
+        if 'png' in content:
+            png = base64.b64decode(content['png'], validate=True)
+            (directory / f'{stem}-price-{ref["rank"]:03d}.png').write_bytes(png)
+            fingerprint = (png, content['digits'])
+            if fingerprint not in prices:
+                try:
+                    prices[fingerprint] = recognize_price(png, content['digits'])
+                except DataError as exc:
+                    raise DataError(f'{category} {ref["rank"]}位: {exc}') from None
+            price = prices[fingerprint]
+        else:
+            price = money(content['text'])
+        change_text = clean(cells.nth(headings.index('前日差額')).inner_text())
+        if change_text in ('±0円', '±0'):
+            change_text = '0円'
+        change = money(change_text, signed=True)
+        data.append(Row(ref['rank'], ref['name'], price, change))
+    validate_rows(data, 100)
+    print('::notice title=ローカルOCR区分検証完了::' + json.dumps({'category': category, 'rows': len(data), 'gemini_requests': 0}))
+    return data
 
 
 def gemini_request(path, key, payload=None):
@@ -534,12 +632,13 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='取得・検証のみ。GASに送信しない')
     parser.add_argument('--capture-only', action='store_true', help='撮影のみ。Gemini・GASへの送信なし')
+    parser.add_argument('--engine', choices=('local', 'gemini'), default='local')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     directory = Path('diagnostics') / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     page = None
     try:
-        for key in (('P_SOUBA_USER', 'P_SOUBA_PASS') if args.capture_only else ('P_SOUBA_USER', 'P_SOUBA_PASS', 'GEMINI_API_KEY')):
+        for key in (('P_SOUBA_USER', 'P_SOUBA_PASS') if args.capture_only or args.engine == 'local' else ('P_SOUBA_USER', 'P_SOUBA_PASS', 'GEMINI_API_KEY')):
             if not os.getenv(key):
                 raise DataError(f'{key} 未設定')
         with sync_playwright() as p:
@@ -557,23 +656,26 @@ def run():
                     route.continue_()
                 context.route('**/*', guard)
                 page = context.new_page()
-                images = collect_images(page, os.environ['P_SOUBA_USER'], os.environ['P_SOUBA_PASS'], directory)
+                images = collect_images(page, os.environ['P_SOUBA_USER'], os.environ['P_SOUBA_PASS'], directory, reader=read_local_ranking if args.engine == 'local' and not args.capture_only else None)
                 if args.capture_only:
                     summary = {'mode': 'capture_only', 'gemini_requests': 0, 'drive_sent': False,
                         'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ'])}
                     (directory / 'summary.json').write_text(json.dumps(summary), encoding='utf-8')
                     print('::notice title=撮影のみ検証完了::' + json.dumps(summary))
                     return 0
-                key = os.environ['GEMINI_API_KEY']
-                candidates = select_model(key, all_candidates=True)
-                model = candidates[0]
-                LOG.info('Geminiモデル: %s', model)
-                print('::notice title=ランキング撮影完了::' + json.dumps({'model': model, 'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ']), 'drive_sent': False}))
-                data, used_models = analyze_images(images, key, model, candidates[1:])
+                if args.engine == 'local':
+                    data, used_models = images, ['local-tesseract']
+                else:
+                    key = os.environ['GEMINI_API_KEY']
+                    candidates = select_model(key, all_candidates=True)
+                    model = candidates[0]
+                    LOG.info('Geminiモデル: %s', model)
+                    print('::notice title=ランキング撮影完了::' + json.dumps({'model': model, 'pachinko_images': len(images['パチンコ']), 'slot_images': len(images['パチスロ']), 'drive_sent': False}))
+                    data, used_models = analyze_images(images, key, model, candidates[1:])
                 validated_report = format_report(data, 100)
                 (directory / 'validated_report.txt').write_text(validated_report, encoding='utf-8')
                 LOG.info('検証完了: パチンコ=%d件 パチスロ=%d件', len(data['パチンコ']), len(data['パチスロ']))
-                summary = {'mode': 'dry_run' if args.dry_run else 'publish', 'models': used_models, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': True, 'drive_sent': False}
+                summary = {'mode': 'dry_run' if args.dry_run else 'publish', 'engine': args.engine, 'models': used_models, 'gemini_requests': 0 if args.engine == 'local' else None, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': True, 'drive_sent': False}
                 if not args.dry_run:
                     publish(data, os.getenv('GAS_URL') or DEFAULT_GAS_URL, 100)
                     summary['drive_sent'] = True
