@@ -16,6 +16,7 @@ on:
     branches: [codex/souba-gemini-repair]
     paths:
       - take_screenshot.py
+      - digit_templates.json
       - requirements.txt
       - tests/**
       - .github/workflows/daily_screenshot.yml

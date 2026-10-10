@@ -442,8 +442,6 @@ def read_local_ranking(page, category, directory):
         if 'png' in content:
             png = base64.b64decode(content['png'], validate=True)
             (directory / f'{stem}-price-{ref["rank"]:03d}.png').write_bytes(png)
-            if ref['rank'] == 11:
-                print('::notice title=数字画像字形診断::' + json.dumps({str(t): digit_patterns(png, t) for t in (160, 180)}))
             fingerprint = (png, content['digits'])
             if fingerprint not in prices:
                 try:
