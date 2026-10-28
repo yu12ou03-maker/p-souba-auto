@@ -1,4 +1,4 @@
-"""ランキング画像をローカルOCRで検証し、両区分100件の正常データのみGASへ送信。"""
+"""選択サイトのランキング画像を検証し、両区分100件の正常データのみGASへ送信。"""
 import argparse
 import base64
 import json
@@ -184,8 +184,9 @@ def navigate(page, url):
 def ranking_snapshot(page, category, expected=100):
     """Read only rank/name from DOM; prices remain image input for Gemini."""
     soup = BeautifulSoup(page.content(), 'html.parser')
-    heading = category + ('ランキング' if SITE_MODE == 'temporary' else '価格ランキング')
-    if heading not in clean(soup.get_text(' ', strip=True)):
+    text = clean(soup.get_text(' ', strip=True))
+    valid_heading = category + 'ランキング' in text if SITE_MODE == 'temporary' else category in text and '価格ランキング' in text
+    if not valid_heading:
         raise DataError('ランキング区分が一致しません')
     candidates = []
     for table_index, table in enumerate(soup.find_all('table')):

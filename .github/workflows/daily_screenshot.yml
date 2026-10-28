@@ -9,7 +9,7 @@ on:
         type: boolean
         default: true
       dry_run:
-        description: '撮影・ローカルOCR・検証のみ（Drive更新なし）'
+        description: '撮影・画像解析・検証のみ（Drive更新なし）'
         type: boolean
         default: true
   push:
@@ -44,7 +44,7 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: 検証テスト
         run: python -m unittest discover -s tests -v
-      - name: ランキング撮影・ローカルOCR・正常時のみ保存
+      - name: ランキング撮影・選択サイトの画像解析・正常時のみ保存
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
