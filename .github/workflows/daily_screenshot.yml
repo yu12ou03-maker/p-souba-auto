@@ -13,9 +13,10 @@ on:
         type: boolean
         default: true
   push:
-    branches: [codex/souba-gemini-repair]
+    branches: [codex/souba-gemini-repair, codex/manual-site-mode]
     paths:
       - take_screenshot.py
+      - site_config.json
       - digit_templates.json
       - requirements.txt
       - tests/**
@@ -47,6 +48,7 @@ jobs:
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GAS_URL: ${{ secrets.GAS_URL }}
           CAPTURE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_only }}
           DRY_RUN: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}

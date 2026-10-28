@@ -1,3 +1,16 @@
+# 通常・臨時サイトの手動切替
+
+設定は `site_config.json` の `site_mode` 1か所です。
+
+- `temporary`: https://sub.p-souba.com/pachinko/ranking と /slot/ranking にログインし、Playwrightで撮影、既存Geminiで金額を2回解析して一致を確認します。`GEMINI_API_KEY` が必要です。順位・機種名はDOMと照合し、基準日はページの「M/D時点」をそのまま記録します（年は補完しません）。
+- `normal`: 従来の通常サイト・ログイン・数字画像照合処理に戻ります。Gemini比較用コードも維持しています。
+
+自動切替はありません。復旧時は `site_mode` を `normal` に変更するだけです。毎朝9時の定期実行と既存GAS経由のDrive保存を維持します。臨時モードでは各100件の金額の2回一致を確認できなければ送信しません。撮影画像・基準日・検証レポートはActionsの診断アーティファクトで確認できます。
+
+ブランチ `codex/manual-site-mode` へのpushでは、全テスト後に実サイトをdry-runし、Driveへ送信しません。手動実行は従来通りcapture_only=trueが既定です。下記は通常モードの既存処理の説明です。
+
+---
+
 # 中古機相場：数字画像の完全一致照合でランキングを取得
 
 毎朝9時JST（UTC 00:00）のGitHub Actionsで、パチンコ・パチスロ各100件を検証後、既存GASへ送信します。毎朝の通常処理はGeminiを使用しません。
