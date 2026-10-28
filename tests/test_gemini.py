@@ -68,14 +68,14 @@ class GeminiTests(unittest.TestCase):
         with patch.dict(app.os.environ, {'GEMINI_MODEL': '../../secret'}), self.assertRaises(app.DataError):
             app.select_model('synthetic-key')
 
-    def test_image_payload_and_verification_direction(self):
+    def test_image_payload_and_single_read_prompt(self):
         with tempfile.TemporaryDirectory() as temp:
             image = Path(temp) / 'image.png'; image.write_bytes(b'synthetic-image')
             with patch.object(app, 'gemini_request', return_value=response(self.rows)) as request:
-                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-2.5-flash', verify=True)
+                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-2.5-flash')
                 payload = request.call_args.args[2]
                 self.assertEqual(payload['contents'][0]['parts'][1]['inlineData']['mimeType'], 'image/png')
-                self.assertIn('下から', payload['contents'][0]['parts'][0]['text'])
+                self.assertIn('上から', payload['contents'][0]['parts'][0]['text'])
 
 
 class ModelSelectionTests(unittest.TestCase):
