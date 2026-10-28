@@ -494,6 +494,39 @@ def read_local_ranking(page, category, directory):
     return data
 
 
+def quota_diagnostics(raw, api_key=''):
+    """Allowlist quota identifiers/numbers only; never persist raw error messages."""
+    result = {'http_status': 429, 'violations': []}
+    try:
+        error = json.loads(raw).get('error', {})
+        if error.get('status') == 'RESOURCE_EXHAUSTED':
+            result['status'] = 'RESOURCE_EXHAUSTED'
+        for detail in error.get('details', []):
+            if detail.get('@type') == 'type.googleapis.com/google.rpc.QuotaFailure':
+                for violation in detail.get('violations', [])[:20]:
+                    safe = {}
+                    for field, pattern in (
+                        ('quotaMetric', r'generativelanguage\.googleapis\.com/[a-zA-Z0-9_]{1,200}'),
+                        ('quotaId', r'Generate[A-Za-z0-9_-]{1,200}'),
+                        ('quotaValue', r'\d{1,20}')):
+                        value = str(violation.get(field, ''))
+                        if re.fullmatch(pattern, value) and not (api_key and api_key in value):
+                            safe[field] = value
+                    if safe:
+                        result['violations'].append(safe)
+            elif detail.get('@type') == 'type.googleapis.com/google.rpc.RetryInfo':
+                value = detail.get('retryDelay', '')
+                if isinstance(value, str) and re.fullmatch(r'\d{1,8}(?:\.\d{1,9})?s', value):
+                    result['retry_delay'] = value
+        # Newer error responses may provide a machine-readable code.
+        for value in (error.get('type'), error.get('status'), error.get('code')):
+            if value in ('rate_limit_exceeded', 'quota_exceeded'):
+                result['error_code'] = value
+    except (ValueError, TypeError, AttributeError):
+        result['details_unavailable'] = True
+    return result
+
+
 def gemini_request(path, key, payload=None):
     url = 'https://generativelanguage.googleapis.com/v1beta/' + path
     request = urllib.request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
@@ -503,6 +536,12 @@ def gemini_request(path, key, payload=None):
             with urllib.request.urlopen(request, timeout=120) as response:
                 return json.loads(response.read())
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                try:
+                    diagnostic = quota_diagnostics(exc.read(65536), key)
+                except Exception:
+                    diagnostic = {'http_status': 429, 'details_unavailable': True}
+                print('::notice title=Gemini利用制限の詳細::' + json.dumps(diagnostic))
             if exc.code not in (500, 502, 503, 504) or attempt == 2:
                 endpoint = path.split('?')[0]
                 raise GeminiAPIError(exc.code, endpoint) from None
