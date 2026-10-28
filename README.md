@@ -2,12 +2,14 @@
 
 設定は `site_config.json` の `site_mode` 1か所です。
 
-- `temporary`: https://sub.p-souba.com/pachinko/ranking と /slot/ranking にログインし、Playwrightで撮影、既存Geminiで金額を2回解析して一致を確認します。`GEMINI_API_KEY` が必要です。順位・機種名はDOMと照合し、基準日はページの「M/D時点」をそのまま記録します（年は補完しません）。
+- `temporary`: https://sub.p-souba.com/pachinko/ranking と /slot/ranking にログインし、Playwrightで撮影、既存Geminiで金額を各画像1回解析します。`GEMINI_API_KEY` が必要です。順位・機種名はDOMと照合し、基準日はページの「M/D時点」をそのまま記録します（年は補完しません）。
 - `normal`: 従来の通常サイト・ログイン・数字画像照合処理に戻ります。Gemini比較用コードも維持しています。
 
-自動切替はありません。復旧時は `site_mode` を `normal` に変更するだけです。毎朝9時の定期実行と既存GAS経由のDrive保存を維持します。臨時モードでは各100件の金額の2回一致を確認できなければ送信しません。撮影画像・基準日・検証レポートはActionsの診断アーティファクトで確認できます。
+自動切替はありません。復旧時は `site_mode` を `normal` に変更するだけです。毎朝9時の定期実行と既存GAS経由のDrive保存を維持します。臨時モードでは各100件の順位・機種名・金額形式・件数の検証に失敗した場合は送信しません。撮影画像・基準日・検証レポートはActionsの診断アーティファクトで確認できます。
 
-ブランチ `codex/manual-site-mode` へのpushでは、全テスト後に実サイトをdry-runし、Driveへ送信しません。手動実行は従来通りcapture_only=trueが既定です。下記は通常モードの既存処理の説明です。
+ランキングは1〜50位・51〜100位の50件ずつ撮影します。両区分で解析用画像4枚、各1回解析の通常4リクエストです（失敗時の再試行は別）。
+
+ブランチへのpushでは、全テスト後に実サイトの撮影のみを検証し、Gemini・Driveへ送信しません。画像解析を含む検証は手動実行の capture_only=false / dry_run=true で行います。手動実行は従来通りcapture_only=trueが既定です。下記は通常モードの既存処理の説明です。
 
 ---
 
@@ -36,7 +38,7 @@ python take_screenshot.py --dry-run
 python take_screenshot.py
 ```
 
-修復ブランチのpushは数字画像照合のdry-runで、Drive更新なしです。手動Actionsはcapture_only=trueが既定で撮影だけを行います。capture_only=false、dry_run=trueで数字画像照合まで検証します。定期実行は正常検証後だけ送信します。Geminiコードは比較用に残っていますが、通常実行・Actionsでは使いません。明示的な`--engine gemini`のみAPIキーが必要です。
+修復ブランチのpushは撮影のみで、Gemini・Driveへの送信なしです。手動Actionsはcapture_only=trueが既定で撮影だけを行います。capture_only=false、dry_run=trueで数字画像照合まで検証します。定期実行は正常検証後だけ送信します。Geminiコードは比較用に残っていますが、通常実行・Actionsでは使いません。明示的な`--engine gemini`のみAPIキーが必要です。
 
 サイトのHTTPログインはユーザーが明示的に許可済みです。HTTPでは認証情報は暗号化されません。Gemini・GASのTLS検証は維持し、サイトへの認証情報を他サイトへの遷移で送信しません。403/429の制限を回避しません。
 

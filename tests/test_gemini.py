@@ -33,14 +33,17 @@ class GeminiTests(unittest.TestCase):
         with self.assertRaises(app.DataError):
             app.parse_gemini({'candidates': []}, self.refs)
 
-    def test_two_reads_must_agree(self):
-        images = {'パチンコ': [(Path('unused.png'), self.refs)], 'パチスロ': []}
-        first = app.parse_gemini(response(self.rows), self.refs)
-        second = [app.Row(1, 'テスト1', 999999, -1234), first[1]]
-        with patch.object(app, 'analyze_chunk', side_effect=[first, second]), patch.object(app.time, 'sleep'), patch.object(app, 'publish') as send:
-            with self.assertRaises(app.DataError):
-                app.analyze_images(images, 'synthetic-key', 'gemini-2.5-flash')
-            send.assert_not_called()
+    def test_four_images_are_read_once_each(self):
+        refs = [{'rank': i, 'name': f'機種{i}'} for i in range(1, 101)]
+        images = {label: [(Path(f'{label}-{offset}.png'), refs[offset:offset+50])
+                         for offset in (0, 50)] for label in ('パチンコ', 'パチスロ')}
+        def read(path, chunk_refs, key, model):
+            return [app.Row(r['rank'], r['name'], 123456, -1234) for r in chunk_refs]
+        with patch.object(app, 'analyze_chunk', side_effect=read) as analyze, patch.object(app.time, 'sleep'):
+            data, used = app.analyze_images(images, 'synthetic-key', 'gemini-3.6-flash')
+            self.assertEqual(analyze.call_count, 4)
+            self.assertEqual([len(data[label]) for label in ('パチンコ', 'パチスロ')], [100, 100])
+            self.assertEqual([call.args[1][0]['rank'] for call in analyze.call_args_list], [1, 51, 1, 51])
 
     def test_incomplete_snapshot_rejected(self):
         with patch.object(app.time, 'monotonic'):
@@ -96,8 +99,8 @@ class FallbackTests(unittest.TestCase):
         self.rows = [app.Row(r['rank'], r['name'], 123456, 0) for r in self.refs]
         self.images = {'パチンコ': [(Path('p.png'), self.refs)], 'パチスロ': [(Path('s.png'), self.refs)]}
 
-    def test_unavailable_model_falls_back_and_rechecks_same_model(self):
-        with patch.object(app, 'analyze_chunk', side_effect=[app.GeminiAPIError(503, 'test'), self.rows, self.rows, self.rows, self.rows]) as analyze, patch.object(app.time, 'sleep'):
+    def test_unavailable_model_falls_back_and_continues_same_model(self):
+        with patch.object(app, 'analyze_chunk', side_effect=[app.GeminiAPIError(503, 'test'), self.rows, self.rows]) as analyze, patch.object(app.time, 'sleep'):
             data, used = app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
             self.assertEqual(len(data['パチスロ']), 100)
             self.assertEqual(used, ['gemini-3.8-flash'])

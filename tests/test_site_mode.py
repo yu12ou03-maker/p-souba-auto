@@ -70,6 +70,8 @@ class SiteModeTests(unittest.TestCase):
                     dates = {}
                     images = app.collect_images(page, 'test', 'test', Path(temp), reference_dates=dates)
                     self.assertEqual(dates, {'パチンコ': '10/27時点', 'パチスロ': '10/27時点'})
-                    self.assertTrue(all(len(chunks) == 4 for chunks in images.values()))
+                    self.assertTrue(all(len(chunks) == 2 for chunks in images.values()))
+                    for chunks in images.values():
+                        self.assertEqual([(refs[0]['rank'], refs[-1]['rank']) for _, refs in chunks], [(1, 50), (51, 100)])
             finally:
                 browser.close()

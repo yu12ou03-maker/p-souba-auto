@@ -50,7 +50,8 @@ jobs:
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GAS_URL: ${{ secrets.GAS_URL }}
-          CAPTURE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_only }}
+          # Push verifies capture without consuming the exhausted daily Gemini quota.
+          CAPTURE_ONLY: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.capture_only) }}
           DRY_RUN: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           if [ "$CAPTURE_ONLY" = "true" ]; then

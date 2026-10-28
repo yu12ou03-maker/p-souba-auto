@@ -218,7 +218,7 @@ def ranking_snapshot(page, category, expected=100):
     return candidates[0]
 
 
-def capture_chunks(page, category, directory, expected=100, chunk_size=25):
+def capture_chunks(page, category, directory, expected=100, chunk_size=50):
     deadline = time.monotonic() + 30
     while True:
         try:
@@ -673,8 +673,6 @@ def analyze_images(images, key, model, alternatives=()):
             while True:
                 try:
                     first = analyze_chunk(path, refs, key, models[active])
-                    time.sleep(13)
-                    second = analyze_chunk(path, refs, key, models[active], verify=True)
                     break
                 except GeminiAPIError as exc:
                     # Never bypass quota/authentication failures by changing models.
@@ -682,8 +680,6 @@ def analyze_images(images, key, model, alternatives=()):
                         raise
                     active += 1
                     print('::notice title=Geminiモデル切替::' + json.dumps({'http_status': exc.status, 'model': models[active]}))
-            if first != second:
-                raise DataError('Geminiの2回の読み取りが一致しません。保存中止')
             rows.extend(first)
             used.add(models[active])
             print('::notice title=画像解析・照合完了::' + json.dumps({'category': label, 'first_rank': refs[0]['rank'], 'last_rank': refs[-1]['rank'], 'model': models[active]}))
@@ -800,7 +796,7 @@ def run():
                 validated_report = format_report(data, 100, reference_dates)
                 (directory / 'validated_report.txt').write_text(validated_report, encoding='utf-8')
                 LOG.info('検証完了: パチンコ=%d件 パチスロ=%d件', len(data['パチンコ']), len(data['パチスロ']))
-                summary = {'site_mode': SITE_MODE, 'reference_dates': reference_dates, 'mode': 'dry_run' if args.dry_run else 'publish', 'engine': args.engine, 'models': used_models, 'gemini_requests': 0 if args.engine == 'local' else None, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': True, 'drive_sent': False}
+                summary = {'site_mode': SITE_MODE, 'reference_dates': reference_dates, 'mode': 'dry_run' if args.dry_run else 'publish', 'engine': args.engine, 'models': used_models, 'gemini_requests': 0 if args.engine == 'local' else None, 'pachinko_rows': len(data['パチンコ']), 'slot_rows': len(data['パチスロ']), 'two_read_agreement': args.engine == 'local', 'gemini_reads_per_image': 1 if args.engine == 'gemini' else 0, 'drive_sent': False}
                 if not args.dry_run:
                     publish(data, os.getenv('GAS_URL') or DEFAULT_GAS_URL, 100, reference_dates)
                     summary['drive_sent'] = True
