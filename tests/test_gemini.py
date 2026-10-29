@@ -33,14 +33,17 @@ class GeminiTests(unittest.TestCase):
         with self.assertRaises(app.DataError):
             app.parse_gemini({'candidates': []}, self.refs)
 
-    def test_two_reads_must_agree(self):
-        images = {'パチンコ': [(Path('unused.png'), self.refs)], 'パチスロ': []}
-        first = app.parse_gemini(response(self.rows), self.refs)
-        second = [app.Row(1, 'テスト1', 999999, -1234), first[1]]
-        with patch.object(app, 'analyze_chunk', side_effect=[first, second]), patch.object(app.time, 'sleep'), patch.object(app, 'publish') as send:
-            with self.assertRaises(app.DataError):
-                app.analyze_images(images, 'synthetic-key', 'gemini-2.5-flash')
-            send.assert_not_called()
+    def test_four_images_are_read_once_each(self):
+        refs = [{'rank': i, 'name': f'機種{i}'} for i in range(1, 101)]
+        images = {label: [(Path(f'{label}-{offset}.png'), refs[offset:offset+50])
+                         for offset in (0, 50)] for label in ('パチンコ', 'パチスロ')}
+        def read(path, chunk_refs, key, model):
+            return [app.Row(r['rank'], r['name'], 123456, -1234) for r in chunk_refs]
+        with patch.object(app, 'analyze_chunk', side_effect=read) as analyze, patch.object(app.time, 'sleep'):
+            data, used = app.analyze_images(images, 'synthetic-key', 'gemini-3.6-flash')
+            self.assertEqual(analyze.call_count, 4)
+            self.assertEqual([len(data[label]) for label in ('パチンコ', 'パチスロ')], [100, 100])
+            self.assertEqual([call.args[1][0]['rank'] for call in analyze.call_args_list], [1, 51, 1, 51])
 
     def test_incomplete_snapshot_rejected(self):
         with patch.object(app.time, 'monotonic'):
@@ -65,14 +68,14 @@ class GeminiTests(unittest.TestCase):
         with patch.dict(app.os.environ, {'GEMINI_MODEL': '../../secret'}), self.assertRaises(app.DataError):
             app.select_model('synthetic-key')
 
-    def test_image_payload_and_verification_direction(self):
+    def test_image_payload_and_single_read_prompt(self):
         with tempfile.TemporaryDirectory() as temp:
             image = Path(temp) / 'image.png'; image.write_bytes(b'synthetic-image')
             with patch.object(app, 'gemini_request', return_value=response(self.rows)) as request:
-                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-2.5-flash', verify=True)
+                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-2.5-flash')
                 payload = request.call_args.args[2]
                 self.assertEqual(payload['contents'][0]['parts'][1]['inlineData']['mimeType'], 'image/png')
-                self.assertIn('下から', payload['contents'][0]['parts'][0]['text'])
+                self.assertIn('上から', payload['contents'][0]['parts'][0]['text'])
 
 
 class ModelSelectionTests(unittest.TestCase):
@@ -96,13 +99,25 @@ class FallbackTests(unittest.TestCase):
         self.rows = [app.Row(r['rank'], r['name'], 123456, 0) for r in self.refs]
         self.images = {'パチンコ': [(Path('p.png'), self.refs)], 'パチスロ': [(Path('s.png'), self.refs)]}
 
-    def test_unavailable_model_falls_back_and_rechecks_same_model(self):
-        with patch.object(app, 'analyze_chunk', side_effect=[app.GeminiAPIError(503, 'test'), self.rows, self.rows, self.rows, self.rows]) as analyze, patch.object(app.time, 'sleep'):
-            data, used = app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
-            self.assertEqual(len(data['パチスロ']), 100)
-            self.assertEqual(used, ['gemini-3.8-flash'])
-            self.assertEqual(analyze.call_args_list[1].args[3], 'gemini-3.8-flash')
-            self.assertEqual(analyze.call_args_list[2].args[3], 'gemini-3.8-flash')
+    def test_service_error_stops_without_model_switch(self):
+        for status in (404, 500, 502, 503, 504):
+            with patch.object(app, 'analyze_chunk', side_effect=app.GeminiAPIError(status, 'test')) as analyze, self.assertRaises(app.GeminiAPIError):
+                app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
+            analyze.assert_called_once()
+
+    def test_http_service_error_and_timeout_are_not_retried(self):
+        errors = [app.urllib.error.HTTPError('https://example.test', code, 'error', {}, None) for code in (429, 503)] + [TimeoutError()]
+        for error in errors:
+            with patch.object(app.urllib.request, 'urlopen', side_effect=error) as request, self.assertRaises(app.DataError):
+                app.gemini_request('models/test:generateContent', 'synthetic-key', {})
+            request.assert_called_once()
+
+    def test_invalid_analysis_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / 'image.png'; image.write_bytes(b'image')
+            with patch.object(app, 'gemini_request', return_value=response([], 'MAX_TOKENS')) as request, self.assertRaises(app.DataError):
+                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-3.6-flash')
+            request.assert_called_once()
 
     def test_no_model_switch_for_quota_or_authentication(self):
         for status in (429, 401, 403):

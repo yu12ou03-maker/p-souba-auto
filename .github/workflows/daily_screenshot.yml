@@ -9,13 +9,14 @@ on:
         type: boolean
         default: true
       dry_run:
-        description: '撮影・ローカルOCR・検証のみ（Drive更新なし）'
+        description: '撮影・画像解析・検証のみ（Drive更新なし）'
         type: boolean
         default: true
   push:
-    branches: [codex/souba-gemini-repair]
+    branches: [codex/souba-gemini-repair, codex/manual-site-mode]
     paths:
       - take_screenshot.py
+      - site_config.json
       - digit_templates.json
       - requirements.txt
       - tests/**
@@ -43,12 +44,14 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: 検証テスト
         run: python -m unittest discover -s tests -v
-      - name: ランキング撮影・ローカルOCR・正常時のみ保存
+      - name: ランキング撮影・選択サイトの画像解析・正常時のみ保存
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GAS_URL: ${{ secrets.GAS_URL }}
-          CAPTURE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_only }}
+          # Push verifies capture without consuming the exhausted daily Gemini quota.
+          CAPTURE_ONLY: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.capture_only) }}
           DRY_RUN: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           if [ "$CAPTURE_ONLY" = "true" ]; then
