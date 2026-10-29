@@ -99,13 +99,25 @@ class FallbackTests(unittest.TestCase):
         self.rows = [app.Row(r['rank'], r['name'], 123456, 0) for r in self.refs]
         self.images = {'パチンコ': [(Path('p.png'), self.refs)], 'パチスロ': [(Path('s.png'), self.refs)]}
 
-    def test_unavailable_model_falls_back_and_continues_same_model(self):
-        with patch.object(app, 'analyze_chunk', side_effect=[app.GeminiAPIError(503, 'test'), self.rows, self.rows]) as analyze, patch.object(app.time, 'sleep'):
-            data, used = app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
-            self.assertEqual(len(data['パチスロ']), 100)
-            self.assertEqual(used, ['gemini-3.8-flash'])
-            self.assertEqual(analyze.call_args_list[1].args[3], 'gemini-3.8-flash')
-            self.assertEqual(analyze.call_args_list[2].args[3], 'gemini-3.8-flash')
+    def test_service_error_stops_without_model_switch(self):
+        for status in (404, 500, 502, 503, 504):
+            with patch.object(app, 'analyze_chunk', side_effect=app.GeminiAPIError(status, 'test')) as analyze, self.assertRaises(app.GeminiAPIError):
+                app.analyze_images(self.images, 'synthetic-key', 'gemini-3.6-flash', ['gemini-3.8-flash'])
+            analyze.assert_called_once()
+
+    def test_http_service_error_and_timeout_are_not_retried(self):
+        errors = [app.urllib.error.HTTPError('https://example.test', code, 'error', {}, None) for code in (429, 503)] + [TimeoutError()]
+        for error in errors:
+            with patch.object(app.urllib.request, 'urlopen', side_effect=error) as request, self.assertRaises(app.DataError):
+                app.gemini_request('models/test:generateContent', 'synthetic-key', {})
+            request.assert_called_once()
+
+    def test_invalid_analysis_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / 'image.png'; image.write_bytes(b'image')
+            with patch.object(app, 'gemini_request', return_value=response([], 'MAX_TOKENS')) as request, self.assertRaises(app.DataError):
+                app.analyze_chunk(image, self.refs, 'synthetic-key', 'gemini-3.6-flash')
+            request.assert_called_once()
 
     def test_no_model_switch_for_quota_or_authentication(self):
         for status in (429, 401, 403):

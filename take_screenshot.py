@@ -531,25 +531,21 @@ def gemini_request(path, key, payload=None):
     url = 'https://generativelanguage.googleapis.com/v1beta/' + path
     request = urllib.request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
         headers={'x-goog-api-key': key, 'Content-Type': 'application/json'})
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                return json.loads(response.read())
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429:
-                try:
-                    diagnostic = quota_diagnostics(exc.read(65536), key)
-                except Exception:
-                    diagnostic = {'http_status': 429, 'details_unavailable': True}
-                print('::notice title=Gemini利用制限の詳細::' + json.dumps(diagnostic))
-            if exc.code not in (500, 502, 503, 504) or attempt == 2:
-                endpoint = path.split('?')[0]
-                raise GeminiAPIError(exc.code, endpoint) from None
-        except (TimeoutError, urllib.error.URLError):
-            if attempt == 2:
-                raise DataError('Gemini接続の再試行上限') from None
-        time.sleep(2 ** attempt)
-    raise DataError('Gemini応答を取得できません')
+    # One attempt only: neither service errors nor ambiguous timeouts may
+    # multiply image requests or consume additional free quota.
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            try:
+                diagnostic = quota_diagnostics(exc.read(65536), key)
+            except Exception:
+                diagnostic = {'http_status': 429, 'details_unavailable': True}
+            print('::notice title=Gemini利用制限の詳細::' + json.dumps(diagnostic))
+        raise GeminiAPIError(exc.code, path.split('?')[0]) from None
+    except (TimeoutError, urllib.error.URLError):
+        raise DataError('Gemini接続失敗。追加送信なし') from None
 
 
 def select_model(key, all_candidates=False):
@@ -646,18 +642,14 @@ def analyze_chunk(path, refs, key, model):
         'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json', 'responseSchema': schema, 'maxOutputTokens': 8192}}
     if model.startswith('gemini-2.5-'):
         payload['generationConfig']['thinkingConfig'] = {'thinkingBudget': 0}
-    for attempt in range(2):
-        response = gemini_request(f'models/{model}:generateContent', key, payload)
-        try:
-            return parse_gemini(response, refs)
-        except DataError:
-            diagnostic = gemini_diagnostics(response, refs)
-            diagnostic.update({'attempt': attempt + 1, 'model': model})
-            print('::notice title=Gemini応答の構造診断::' + json.dumps(diagnostic))
-            if attempt:
-                raise
-            time.sleep(2)
-    raise DataError('Gemini解析失敗')
+    response = gemini_request(f'models/{model}:generateContent', key, payload)
+    try:
+        return parse_gemini(response, refs)
+    except DataError:
+        diagnostic = gemini_diagnostics(response, refs)
+        diagnostic.update({'attempt': 1, 'model': model})
+        print('::notice title=Gemini応答の構造診断::' + json.dumps(diagnostic))
+        raise
 
 
 def analyze_images(images, key, model, alternatives=()):
@@ -670,16 +662,7 @@ def analyze_images(images, key, model, alternatives=()):
     for label in ('パチンコ', 'パチスロ'):
         rows = []
         for path, refs in images[label]:
-            while True:
-                try:
-                    first = analyze_chunk(path, refs, key, models[active])
-                    break
-                except GeminiAPIError as exc:
-                    # Never bypass quota/authentication failures by changing models.
-                    if exc.status not in (404, 503) or active + 1 >= len(models):
-                        raise
-                    active += 1
-                    print('::notice title=Geminiモデル切替::' + json.dumps({'http_status': exc.status, 'model': models[active]}))
+            first = analyze_chunk(path, refs, key, models[active])
             rows.extend(first)
             used.add(models[active])
             print('::notice title=画像解析・照合完了::' + json.dumps({'category': label, 'first_rank': refs[0]['rank'], 'last_rank': refs[-1]['rank'], 'model': models[active]}))
