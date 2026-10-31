@@ -13,7 +13,7 @@ on:
         type: boolean
         default: true
   push:
-    branches: [codex/souba-gemini-repair]
+    branches: [main, codex/souba-gemini-repair]
     paths:
       - take_screenshot.py
       - digit_templates.json

@@ -22,9 +22,9 @@ from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-# This site currently serves its login/ranking on HTTP. User authorized HTTP login.
-BASE = 'http://www.p-souba.com/'
-PACHINKO_URL = urljoin(BASE, 'krank_1.htm')
+# The legacy site redirects to this HTTPS service. Login here is user-authorized.
+BASE = 'https://sub.p-souba.com/'
+PACHINKO_URL = urljoin(BASE, 'pachinko/ranking')
 DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx_6T-pyI7s7Ft5dMS843_G33U7jEZrBZub88CFtKa9c7o78yzWvIaTSzuMDf7hEyZa/exec'
 LOG = logging.getLogger('souba')
 
@@ -131,7 +131,7 @@ def parse_ranking(html, category, minimum=10):
 
 def site_url(url):
     parsed = urlsplit(url)
-    if parsed.scheme not in ('http', 'https') or parsed.hostname not in ('www.p-souba.com', 'p-souba.com') or parsed.username or parsed.password or parsed.port not in (None, 80, 443):
+    if parsed.scheme != 'https' or parsed.hostname != 'sub.p-souba.com' or parsed.username or parsed.password or parsed.port not in (None, 443):
         raise DataError('許可された同一サイトへの遷移が必要です')
     return url
 
@@ -141,7 +141,8 @@ def find_ranking(html, current, category):
     links = set()
     for a in soup.find_all('a', href=True):
         text = clean(a.get_text(' ', strip=True))
-        if category in text and 'ランキング' in text and re.fullmatch(r'/krank_[12]\.htm', urlsplit(urljoin(current, a['href'])).path):
+        target = urlsplit(urljoin(current, a['href']))
+        if category in text and 'ランキング' in text and target.path in ('/pachinko/ranking', '/slot/ranking') and not target.query and not target.fragment:
             links.add(site_url(urljoin(current, a['href'])))
     if len(links) != 1:
         raise DataError('ランキングリンクがないか複数あります')
@@ -296,7 +297,7 @@ def capture_chunks(page, category, directory, expected=100, chunk_size=25):
 
 
 def collect_images(page, user, password, directory, reader=None):
-    navigate(page, urljoin(BASE, 'index.php'))
+    navigate(page, urljoin(BASE, 'login'))
     field = page.locator('input[type="password"]')
     if not field.count():
         raise DataError('ログインフォームがありません')
@@ -310,13 +311,13 @@ def collect_images(page, user, password, directory, reader=None):
         button.click(timeout=30000)
     else:
         field.first.press('Enter')
-    page.wait_for_timeout(3000)  # XOOPS login uses a timed redirect.
+    page.wait_for_timeout(3000)
     navigate(page, PACHINKO_URL)
     pachinko = capture_chunks(page, 'パチンコ', directory)
     if reader:
         pachinko = reader(page, 'パチンコ', directory)
     slot_url = find_ranking(page.content(), page.url, 'スロット')
-    if urlsplit(slot_url).path != '/krank_2.htm':
+    if urlsplit(slot_url).path != '/slot/ranking':
         raise DataError('スロットランキングURLが一致しません')
     navigate(page, slot_url)
     slot = capture_chunks(page, 'スロット', directory)
@@ -415,7 +416,7 @@ def read_local_ranking(page, category, directory):
     table_index, header_index, indexes, refs = ranking_snapshot(page, category, 100)
     table = page.locator('table').nth(table_index)
     headings = table.evaluate("""(table, i) => Array.from(Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table)[i].children).map(c => c.innerText.trim())""", header_index)
-    rows = table.locator(':scope > tbody > tr, :scope > tr')
+    rows = table.locator(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr')
     prices = {}
     errors = []
     data = []
@@ -691,10 +692,11 @@ def run():
             if not os.getenv(key):
                 raise DataError(f'{key} 未設定')
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            proxy_server = os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+            browser = p.chromium.launch(headless=True, **({'proxy': {'server': proxy_server}} if proxy_server else {}))
             try:
                 context = browser.new_context(viewport={'width': 1440, 'height': 1000}, device_scale_factor=2)
-                # HTTP site login is explicitly authorized; credentials must stay on this site.
+                # Credentials must stay on the explicitly authorized HTTPS site.
                 def guard(route):
                     if route.request.is_navigation_request():
                         try:

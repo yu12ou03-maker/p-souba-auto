@@ -46,11 +46,27 @@ class ParseTests(unittest.TestCase):
             app.parse_ranking(fixture(), 'スロット')
 
     def test_link(self):
-        html = '<a href="/krank_2.htm">スロット価格ランキング</a>'
-        self.assertIn('/krank_2.htm', app.find_ranking(html, app.BASE, 'スロット'))
-        for href in ('https://evil.test/krank_2.htm', 'https://user:pass@www.p-souba.com/krank_2.htm'):
+        html = '<a href="/slot/ranking">スロット価格ランキング</a>'
+        self.assertIn('/slot/ranking', app.find_ranking(html, app.BASE, 'スロット'))
+        for href in ('https://evil.test/slot/ranking', 'https://user:pass@www.p-souba.com/slot/ranking'):
             with self.assertRaises(app.DataError):
                 app.find_ranking(f'<a href="{href}">スロットランキング</a>', app.BASE, 'スロット')
+
+
+    def test_site_url_requires_authorized_https_host(self):
+        self.assertEqual(app.site_url(app.BASE + 'login'), app.BASE + 'login')
+        for url in ('http://sub.p-souba.com/login', 'https://evil.test/login',
+                    'https://sub.p-souba.com.evil.test/login',
+                    'https://user:password@sub.p-souba.com/login',
+                    'https://sub.p-souba.com:444/login'):
+            with self.subTest(url=url), self.assertRaises(app.DataError):
+                app.site_url(url)
+
+    def test_ranking_link_ignores_other_sort_modes(self):
+        html = ('<a href="/slot/ranking?mode=sagaku1d_up">スロットランキング</a>'
+                '<a href="/slot/ranking">スロット価格ランキング</a>')
+        self.assertEqual(app.find_ranking(html, app.BASE, 'スロット'),
+                         app.BASE + 'slot/ranking')
 
 
 class SafetyTests(unittest.TestCase):

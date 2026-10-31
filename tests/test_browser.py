@@ -8,6 +8,25 @@ from test_souba import fixture
 
 
 class BrowserTests(unittest.TestCase):
+    def test_local_ranking_with_separate_header(self):
+        with sync_playwright() as p:
+            options = {'headless': True}
+            if os.getenv('TEST_CHROMIUM_PATH'):
+                options['executable_path'] = os.environ['TEST_CHROMIUM_PATH']
+            browser = p.chromium.launch(**options)
+            try:
+                page = browser.new_page()
+                html = fixture(count=100).replace('<table><tr>', '<table><thead><tr>', 1)
+                html = html.replace('</tr>', '</tr></thead><tbody>', 1).replace('</table>', '</tbody></table>')
+                page.set_content(html)
+                with tempfile.TemporaryDirectory() as temp:
+                    rows = app.read_local_ranking(page, 'パチンコ', app.Path(temp))
+                self.assertEqual(len(rows), 100)
+                self.assertEqual(rows[0], app.Row(1, '機種1', 123456, 1234))
+                self.assertEqual(rows[-1], app.Row(100, '機種100', 123456, -2000))
+            finally:
+                browser.close()
+
     def test_capture_waits_for_delayed_prices(self):
         with sync_playwright() as p:
             options = {'headless': True}
@@ -41,15 +60,15 @@ class BrowserTests(unittest.TestCase):
                 def route(request_route):
                     request = request_route.request
                     requests.append((request.method, request.url))
-                    if request.url.endswith('/index.php'):
+                    if request.url.endswith('/login'):
                         html = '<form method="post" action="/loggedin.php"><input name="uname" type="text"><input name="pass" type="password"><button type="submit">Login</button></form>'
                     elif request.url.endswith('/loggedin.php'):
                         self.assertEqual(request.method, 'POST')
                         self.assertIn('uname=testuser', request.post_data)
-                        html = '<a href="/krank_1.htm">パチンコ価格ランキング</a>'
-                    elif request.url.endswith('/krank_1.htm'):
-                        html = '<style>table{width:960px}td{height:35px}</style>' + fixture(count=100) + '<a href="/krank_2.htm">スロット価格ランキング</a>'
-                    elif request.url.endswith('/krank_2.htm'):
+                        html = '<a href="/pachinko/ranking">パチンコ価格ランキング</a>'
+                    elif request.url.endswith('/pachinko/ranking'):
+                        html = '<style>table{width:960px}td{height:35px}</style>' + fixture(count=100) + '<a href="/slot/ranking">スロット価格ランキング</a>'
+                    elif request.url.endswith('/slot/ranking'):
                         html = '<style>table{width:960px}td{height:35px}</style>' + fixture('スロット', count=100).replace('<td>機種', '<td>スロット機種')
                     else:
                         self.fail('unexpected request')
