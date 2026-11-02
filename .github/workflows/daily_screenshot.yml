@@ -2,6 +2,7 @@ name: 毎朝相場データ自動取得
 on:
   schedule:
     - cron: '0 0 * * *' # 09:00 JST; GitHub may delay scheduled runs
+    - cron: '7 0 * * *' # 09:07 JST recovery if no collection has started today
   workflow_dispatch:
     inputs:
       capture_only:
@@ -13,8 +14,9 @@ on:
         type: boolean
         default: true
   push:
-    branches: [main, codex/souba-gemini-repair]
+    branches: [main, codex/souba-gemini-repair, codex/souba-schedule-recovery-20261102]
     paths:
+      - schedule_guard.py
       - take_screenshot.py
       - digit_templates.json
       - requirements.txt
@@ -22,6 +24,7 @@ on:
       - .github/workflows/daily_screenshot.yml
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: souba-${{ github.ref }}
   cancel-in-progress: false
@@ -31,19 +34,28 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: 本日の取得開始履歴を確認
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 schedule_guard.py
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.proceed == 'true'
         with:
           python-version: '3.11'
           cache: pip
       - name: 依存関係とChromiumを導入
+        if: steps.guard.outputs.proceed == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
           python -m pip install -r requirements.txt
           python -m playwright install --with-deps chromium
       - name: 検証テスト
+        if: steps.guard.outputs.proceed == 'true'
         run: python -m unittest discover -s tests -v
       - name: ランキング撮影・ローカルOCR・正常時のみ保存
+        if: steps.guard.outputs.proceed == 'true'
         env:
           P_SOUBA_USER: ${{ secrets.P_SOUBA_USER }}
           P_SOUBA_PASS: ${{ secrets.P_SOUBA_PASS }}
