@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       capture_only:
-        description: '撮影のみ（Gemini・Driveへの送信なし）'
+        description: '撮影のみ（Driveへの送信なし）'
         type: boolean
         default: true
       dry_run:
@@ -17,22 +17,33 @@ on:
         type: boolean
         default: true
   push:
-    branches: [main, codex/souba-gemini-repair, codex/souba-schedule-recovery-20261102]
+    branches: [main, codex/souba-gemini-repair, codex/souba-schedule-recovery-20261102, codex/independent-souba-trigger-20261103]
     paths:
       - schedule_guard.py
       - take_screenshot.py
       - digit_templates.json
       - requirements.txt
       - tests/**
+      - independent-trigger/**
       - .github/workflows/daily_screenshot.yml
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: souba-${{ github.ref }}
+  group: souba-production
   cancel-in-progress: false
 jobs:
+  verify-safety:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 起動・重複防止のみ検証（実取得・送信なし）
+        run: |
+          python3 -m unittest discover -s tests -p 'test_schedule_guard.py' -v
+          node tests/test_independent_trigger.cjs
   take-screenshot:
+    if: github.event_name != 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,3 +92,4 @@ jobs:
           path: diagnostics/
           if-no-files-found: ignore
           retention-days: 3
+
