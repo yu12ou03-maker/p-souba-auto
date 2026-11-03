@@ -1,8 +1,11 @@
 name: 毎朝相場データ自動取得
 on:
   schedule:
+    - cron: '50 23 * * *' # 08:50 JST; earlier chance to finish before 09:45 bulletin
     - cron: '0 0 * * *' # 09:00 JST; GitHub may delay scheduled runs
     - cron: '7 0 * * *' # 09:07 JST recovery if no collection has started today
+    - cron: '15 0 * * *' # 09:15 JST recovery if none started
+    - cron: '30 0 * * *' # 09:30 JST final scheduled recovery if none started
   workflow_dispatch:
     inputs:
       capture_only:
